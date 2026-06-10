@@ -53,6 +53,24 @@ success() { echo -e "${GREEN}[shogun]${RESET} $*"; }
 warn()    { echo -e "${YELLOW}[shogun]${RESET} $*"; }
 error()   { echo -e "${RED}[shogun] ERROR:${RESET} $*" >&2; }
 
+# config.yaml から ashigaru_count を取得（デフォルト 3）
+read_ashigaru_count() {
+  local config="$1"
+  node_yaml -e '
+const yaml = require("js-yaml");
+const d = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
+process.stdout.write(String((d.agents && d.agents.ashigaru_count) || 3));
+' -- "$config"
+}
+
+# ashigaru1〜N のエージェント名配列を生成
+ashigaru_agents() {
+  local count="$1"
+  local -a list=(taisho karo gunshi metsuke)
+  for ((i=1; i<=count; i++)); do list+=("ashigaru${i}"); done
+  echo "${list[@]}"
+}
+
 # ════════════════════════════════════════════════════════════
 # shogun init
 # ════════════════════════════════════════════════════════════
@@ -105,8 +123,11 @@ cmd_init() {
   # queue/shogun_to_karo.yaml を初期化
   echo "commands: []" > "${shogun_dir}/queue/shogun_to_karo.yaml"
 
-  # 各エージェントのファイルを初期化
-  local agents=(taisho karo gunshi metsuke ashigaru1 ashigaru2 ashigaru3)
+  # config.yaml の ashigaru_count に基づいてエージェントファイルを初期化
+  local init_count
+  init_count="$(read_ashigaru_count "${shogun_dir}/config.yaml")"
+  local agents
+  read -ra agents <<< "$(ashigaru_agents "$init_count")"
   for agent in "${agents[@]}"; do
     echo "messages: []"   > "${shogun_dir}/queue/inbox/${agent}.yaml"
     echo "tasks: []"      > "${shogun_dir}/queue/tasks/${agent}.yaml"
@@ -308,10 +329,11 @@ process.stdout.write(v ? "true" : "false");
     mkdir -p "$backup_dir"
     cp -r "${SHOGUN_ROOT}/.shogun/queue/." "${backup_dir}/"
 
-    # キューリセット
+    # キューリセット（ashigaru_count は cmd_start 冒頭で読み込み済み）
     echo "commands: []" > "${SHOGUN_ROOT}/.shogun/queue/shogun_to_karo.yaml"
-    local agents=(taisho karo gunshi metsuke ashigaru1 ashigaru2 ashigaru3)
-    for agent in "${agents[@]}"; do
+    local clean_agents
+    read -ra clean_agents <<< "$(ashigaru_agents "$ashigaru_count")"
+    for agent in "${clean_agents[@]}"; do
       echo "messages: []" > "${SHOGUN_ROOT}/.shogun/queue/inbox/${agent}.yaml"
       echo "tasks: []"    > "${SHOGUN_ROOT}/.shogun/queue/tasks/${agent}.yaml"
       echo "reports: []"  > "${SHOGUN_ROOT}/.shogun/queue/reports/${agent}_report.yaml"
@@ -442,18 +464,21 @@ if (cmds.length === 0) {
 
   # 各エージェントのタスク状態
   echo -e "${BOLD}[ エージェント タスク状態 ]${RESET}"
-  local agents=(taisho karo gunshi metsuke ashigaru1 ashigaru2 ashigaru3)
+  local status_count
+  status_count="$(read_ashigaru_count "${SHOGUN_ROOT}/.shogun/config.yaml")"
+  local agents
+  read -ra agents <<< "$(ashigaru_agents "$status_count")"
   for agent in "${agents[@]}"; do
     local task_file="${SHOGUN_ROOT}/.shogun/queue/tasks/${agent}.yaml"
+    local count="0"
     if [[ -f "$task_file" ]]; then
-      local count
       count=$(node_yaml -e '
 const yaml = require("js-yaml");
 const d = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {tasks: []};
 process.stdout.write(String((d.tasks || []).length));
 ' -- "$task_file" 2>/dev/null || echo "0")
-      printf "  %-14s tasks: %s\n" "$agent" "$count"
     fi
+    printf "  %-14s tasks: %s\n" "$agent" "$count"
   done
   echo ""
 

@@ -1,0 +1,14 @@
+{
+  "name": "shogun-framework",
+  "version": "0.1.0",
+  "description": "ローカルAIオーケストレーションフレームワーク",
+  "private": true,
+  "scripts": {
+    "test": "tests/bats/bin/bats tests/unit tests/integration",
+    "test:unit": "tests/bats/bin/bats tests/unit",
+    "test:integration": "tests/bats/bin/bats tests/integration"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}

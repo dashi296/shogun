@@ -8,7 +8,7 @@ agents:
 
 language: ja
 startup:
-  skip_permissions: true
+  skip_permissions: false  # true にする場合は意味を理解した上で明示的に変更してください
 logging:
   level: info
   dir: .shogun/logs/

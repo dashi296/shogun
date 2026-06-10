@@ -3,6 +3,15 @@
 # 環境変数: SHOGUN_ROOT（.shogun/の親ディレクトリ）, SHOGUN_ROLE（送信者役職名）
 set -euo pipefail
 
+# scripts/ の親 = リポジトリルートを node_modules 解決に使う
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export NODE_PATH="${_SCRIPT_DIR}/../node_modules${NODE_PATH:+:$NODE_PATH}"
+
+# macOS: util-linux の flock を keg-only パスから補完
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  export PATH="/opt/homebrew/opt/util-linux/bin:${PATH}"
+fi
+
 RECIPIENT="${1:?Usage: $0 <recipient> <subject> <body>}"
 SUBJECT="${2:-}"
 BODY="${3:-}"

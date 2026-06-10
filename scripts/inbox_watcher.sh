@@ -3,6 +3,9 @@
 # 環境変数: SHOGUN_ROOT
 set -euo pipefail
 
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export NODE_PATH="${_SCRIPT_DIR}/../node_modules${NODE_PATH:+:$NODE_PATH}"
+
 AGENT_ID="${1:?Usage: $0 <agent_id> <tmux_pane>}"
 PANE="${2:?}"
 ROOT="${SHOGUN_ROOT:?SHOGUN_ROOT が未設定です}"

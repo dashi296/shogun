@@ -18,9 +18,10 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC}  $*"; WARNINGS=$((WARNINGS+1)); }
 log_err()  { echo -e "${RED}[ERR]${NC}   $*"; ERRORS=$((ERRORS+1)); }
 log_info() { echo -e "${BLUE}[INFO]${NC}  $*"; }
 
-# ─── インストール先（ハードコード）──────────────────────────
+# ─── インストール先・リポジトリURL（ハードコード）──────────
 INSTALL_DIR="${HOME}/.local/share/shogun"
 BIN_DIR="${HOME}/.local/bin"
+REPO_URL="https://github.com/dashi296/shogun"
 
 # ════════════════════════════════════════════════════════════
 # STEP 1: 依存ツールチェック
@@ -123,7 +124,7 @@ if [[ -d "${INSTALL_DIR}/.git" ]]; then
 else
   log_info "Shogun をインストールします: ${INSTALL_DIR}"
   mkdir -p "$(dirname "${INSTALL_DIR}")"
-  git clone https://github.com/dashi296/shogun "${INSTALL_DIR}"
+  git clone "${REPO_URL}" "${INSTALL_DIR}"
   log_ok "フレームワークをインストールしました"
 fi
 
@@ -134,7 +135,10 @@ echo ""
 log_info "STEP 3: npm install"
 echo "──────────────────────────────────────────"
 
-(cd "${INSTALL_DIR}" && npm install --omit=dev --silent)
+if ! (cd "${INSTALL_DIR}" && npm install --omit=dev --silent); then
+  log_err "npm install に失敗しました。Node.js のバージョンを確認してください（v18以上推奨）"
+  exit 1
+fi
 log_ok "npm install 完了"
 
 # ════════════════════════════════════════════════════════════

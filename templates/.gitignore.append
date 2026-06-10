@@ -1,0 +1,7 @@
+# Shogun（.gitignoreに追記される内容）
+.shogun/queue/inbox/*.yaml
+.shogun/queue/tasks/*.yaml
+.shogun/queue/reports/*.yaml
+.shogun/queue/shogun_to_karo.yaml
+.shogun/memory/MEMORY.md
+.shogun/logs/*.log

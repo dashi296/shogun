@@ -1,0 +1,14 @@
+# Shogun プロジェクト設定
+version: "1.0"
+
+agents:
+  ashigaru_count: 3        # 足軽の人数 (1-7)
+  taisho_model: opus       # 大将のモデル (opus/sonnet)
+  worker_model: sonnet     # 足軽・軍師・目付のモデル
+
+language: ja
+startup:
+  skip_permissions: true
+logging:
+  level: info
+  dir: .shogun/logs/

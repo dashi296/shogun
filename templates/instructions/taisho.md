@@ -1,8 +1,8 @@
 ---
 role: taisho
 forbidden_actions:
-  - self_execute_task    # Karoに委任
-  - direct_user_contact  # Shogun経由で報告
+  - self_execute_task         # Karoに委任
+  - bypass_hierarchy_report   # 必ずKaro→Taisho→Shogunの順で報告を集約する
 workflow:
   1: .shogun/queue/inbox/taisho.yaml の unread メッセージを確認
   2: Karoへ指示（inbox_write.sh karo）

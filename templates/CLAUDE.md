@@ -16,5 +16,6 @@
 
 - 受信: `.shogun/queue/inbox/{自分の役職}.yaml` を読む
 - 送信: `bash $SHOGUN_BIN_DIR/scripts/inbox_write.sh {相手} "{subject}" "{body}"` を実行
+  （`$SHOGUN_BIN_DIR` は `shogun start` によって自動設定される。通常 `~/.local/share/shogun`）
 - タスク: `.shogun/queue/tasks/{自分の役職}.yaml` を読む
 - 報告: `.shogun/queue/reports/{自分の役職}_report.yaml` に書き込む

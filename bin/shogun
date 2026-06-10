@@ -324,9 +324,10 @@ process.stdout.write(v ? "true" : "false");
   tmux kill-session -t "$session_multi"  2>/dev/null && info "既存セッション ${session_multi} を終了"  || true
 
   # claude コマンドのオプション
-  local claude_opts="--dangerously-skip-permissions"
-  if [[ "$skip_permissions" == "false" ]]; then
-    claude_opts=""
+  # .shogun/config.yaml で startup.skip_permissions: true を明示した場合のみ付与
+  local claude_opts=""
+  if [[ "$skip_permissions" == "true" ]]; then
+    claude_opts="--dangerously-skip-permissions"
   fi
 
   # ─── shogun-<name> セッション（Taisho 用、1ペイン）

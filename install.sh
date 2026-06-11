@@ -104,8 +104,11 @@ fi
 
 # flock（macOS のみチェック。Linux はプリインストール済み）
 if [[ "$OS" == "Darwin" ]]; then
+  FLOCK_KEG="/opt/homebrew/opt/util-linux/bin"
   if command -v flock &>/dev/null; then
     log_ok "flock: インストール済み"
+  elif [[ -x "${FLOCK_KEG}/flock" ]]; then
+    log_ok "flock: インストール済み (keg-only: ${FLOCK_KEG})"
   else
     log_warn "flock が見つかりません。以下のコマンドでインストールしてください:"
     log_warn "  brew install util-linux"

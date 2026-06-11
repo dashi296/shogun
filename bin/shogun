@@ -585,7 +585,12 @@ cmd_doctor() {
   check_cmd tmux   "tmuxのインストール: brew install tmux"
   check_cmd claude "Claude Code CLI"
   check_cmd node   "Node.js"
-  check_cmd flock  "flock (util-linux, macOSでは brew install util-linux)"
+  if command -v flock &>/dev/null || [[ -x "/opt/homebrew/opt/util-linux/bin/flock" ]]; then
+    echo -e "  ${GREEN}✓${RESET} flock"
+  else
+    echo -e "  ${RED}✗${RESET} flock が見つかりません → brew install util-linux"
+    ok=false
+  fi
 
   # js-yaml
   if NODE_PATH="${NODE_PATH_ARG}" node -e "require('js-yaml')" 2>/dev/null; then

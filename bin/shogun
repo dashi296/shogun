@@ -426,18 +426,20 @@ process.stdout.write(v ? "true" : "false");
   tmux new-session -d -s "$session_taisho" -x 220 -y 50
   tmux set-option -t "$session_taisho" status-style "bg=magenta,fg=white"
 
-  if [[ "$setup_only" == "false" ]]; then
-    local taisho_cmd
-    taisho_cmd="cd ${SHOGUN_ROOT} && SHOGUN_ROLE=taisho SHOGUN_ROOT=${SHOGUN_ROOT} SHOGUN_BIN_DIR=${SHOGUN_BIN_DIR} claude --model ${taisho_model} ${claude_opts} --add-dir ${SHOGUN_ROOT}/.shogun"
-    tmux send-keys -t "${session_taisho}:0" "$taisho_cmd" Enter
-  fi
-
   # inbox_watcher.sh をバックグラウンドで起動（Taisho）
+  # claude より先に起動しないと、claude の TUI が入力を乗っ取り
+  # inbox_watcher のコマンド文字列が Claude の入力欄に入ってしまう
   local taisho_pane
   taisho_pane="${session_taisho}:0"
   tmux send-keys -t "$taisho_pane" \
     "SHOGUN_ROOT=${SHOGUN_ROOT} bash ${SHOGUN_BIN_DIR}/scripts/inbox_watcher.sh taisho ${taisho_pane} &" \
     Enter 2>/dev/null || true
+
+  if [[ "$setup_only" == "false" ]]; then
+    local taisho_cmd
+    taisho_cmd="cd ${SHOGUN_ROOT} && SHOGUN_ROLE=taisho SHOGUN_ROOT=${SHOGUN_ROOT} SHOGUN_BIN_DIR=${SHOGUN_BIN_DIR} claude --model ${taisho_model} ${claude_opts} --add-dir ${SHOGUN_ROOT}/.shogun"
+    tmux send-keys -t "${session_taisho}:0" "$taisho_cmd" Enter
+  fi
 
   # ─── multiagent-<name> セッション
   # ペイン0: karo
@@ -464,7 +466,8 @@ process.stdout.write(v ? "true" : "false");
     local role="${pane_roles[$i]}"
     local pane_id="${session_multi}:0.${i}"
 
-    # inbox_watcher をバックグラウンドで起動
+    # inbox_watcher を claude より先に起動する
+    # claude の TUI が入力を乗っ取る前にバックグラウンドへ回す
     tmux send-keys -t "$pane_id" \
       "SHOGUN_ROOT=${SHOGUN_ROOT} bash ${SHOGUN_BIN_DIR}/scripts/inbox_watcher.sh ${role} ${pane_id} &" \
       Enter 2>/dev/null || true

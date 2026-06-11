@@ -668,7 +668,9 @@ cmd_upgrade() {
   local target_version=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --version)   target_version="$2"; shift 2 ;;
+      --version)
+        [[ "${2:-}" ]] || { error "--version には値が必要です（例: shogun upgrade --version v0.0.2）"; exit 1; }
+        target_version="$2"; shift 2 ;;
       --version=*) target_version="${1#--version=}"; shift ;;
       *)           shift ;;
     esac

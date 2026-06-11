@@ -697,7 +697,7 @@ cmd_upgrade() {
   if [[ -z "${target_version}" ]]; then
     info "GitHub API から最新バージョンを取得中..."
     local api_response
-    local curl_args=(-fsSL -H "Accept: application/vnd.github+json")
+    local curl_args=(-fsSL --max-time 30 --connect-timeout 10 -H "Accept: application/vnd.github+json")
     [[ -n "${GITHUB_TOKEN:-}" ]] && curl_args+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
     api_response="$(curl "${curl_args[@]}" \
       "https://api.github.com/repos/dashi296/shogun/releases/latest" 2>/dev/null)" || {
@@ -732,8 +732,12 @@ cmd_upgrade() {
   git -C "${SHOGUN_BIN_DIR}" fetch --tags --quiet
 
   if git -C "${SHOGUN_BIN_DIR}" checkout "${target_version}" --quiet; then
-    if ! (cd "${SHOGUN_BIN_DIR}" && npm install --omit=dev --silent); then
+    if ! (cd "${SHOGUN_BIN_DIR}" && npm install --omit=dev); then
       error "npm install に失敗しました。Node.js のバージョンを確認してください（v18 以上推奨）。"
+      if [[ "${current_tag}" != "不明" ]]; then
+        warn "${current_tag} にロールバックします..."
+        git -C "${SHOGUN_BIN_DIR}" checkout "${current_tag}" --quiet || true
+      fi
       exit 1
     fi
     success "Shogun を ${target_version} にアップデートしました。"

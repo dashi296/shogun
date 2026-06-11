@@ -41,7 +41,7 @@ node -e "
   pkg.version = '${VERSION}';
   fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
 "
-npm install --package-lock-only --silent
+npm install --package-lock-only
 git add package.json package-lock.json
 # すでに同じバージョンの場合は差分なし → コミットをスキップしてタグ作成へ進む
 if ! git diff --cached --quiet; then

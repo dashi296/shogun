@@ -60,6 +60,7 @@ if [[ "${DRY_RUN}" == "true" ]]; then
   exit 0
 fi
 
+
 # package.json のバージョンを更新（Node.js を使い macOS/Linux 両対応）
 node -e "
   const fs = require('fs');

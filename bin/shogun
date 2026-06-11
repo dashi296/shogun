@@ -759,6 +759,19 @@ cmd_upgrade() {
 }
 
 # ════════════════════════════════════════════════════════════
+# shogun version
+# ════════════════════════════════════════════════════════════
+cmd_version() {
+  local version
+  version="$(git -C "${SHOGUN_BIN_DIR}" describe --tags --exact-match HEAD 2>/dev/null || true)"
+  if [[ -z "${version}" ]]; then
+    version="$(grep '"version"' "${SHOGUN_BIN_DIR}/package.json" | sed 's/.*"version": *"\([^"]*\)".*/\1/')"
+    version="v${version} (dev)"
+  fi
+  echo "shogun ${version}"
+}
+
+# ════════════════════════════════════════════════════════════
 # shogun help
 # ════════════════════════════════════════════════════════════
 cmd_help() {
@@ -777,6 +790,7 @@ cmd_help() {
   echo -e "       [--tail N]              最新 N 行を表示 (デフォルト: 50)"
   echo -e "  ${CYAN}doctor${RESET}                       依存ツールの確認"
   echo -e "  ${CYAN}upgrade${RESET}                      フレームワークをアップデート"
+  echo -e "  ${CYAN}version${RESET}                      バージョンを表示"
   echo -e "  ${CYAN}help${RESET}                         このヘルプを表示"
   echo ""
   echo -e "${BOLD}クイックスタート:${RESET}"
@@ -803,6 +817,7 @@ case "$COMMAND" in
   logs)    cmd_logs "$@" ;;
   doctor)  cmd_doctor "$@" ;;
   upgrade) cmd_upgrade "$@" ;;
+  version|--version|-v) cmd_version ;;
   help|--help|-h) cmd_help ;;
   *)
     error "不明なコマンド: ${COMMAND}"

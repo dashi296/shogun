@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # 使用法: bash inbox_watcher.sh <agent_id> <tmux_pane>
 # 環境変数:
-#   SHOGUN_ROOT          .shogun/ の親ディレクトリ（必須）
-#   SHOGUN_WATCH_REPORTS 1 のとき reports/ も監視する（Karo / Taisho 用の安全網）
+#   SHOGUN_ROOT            .shogun/ の親ディレクトリ（必須）
+#   SHOGUN_REPORT_SOURCES  消費する報告元の空白区切りリスト。指定時は reports/ も監視する
+#                          （Karo / Taisho 用の安全網）。例: karo -> "gunshi metsuke ashigaru1",
+#                          taisho -> "karo"
 set -euo pipefail
 
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

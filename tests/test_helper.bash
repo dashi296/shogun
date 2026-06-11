@@ -26,7 +26,7 @@ setup_test_project() {
 
 # shogun init 済みのフルプロジェクトを作成（統合テスト用）
 init_test_project() {
-  TEST_PROJECT="$(mktemp -d)"
+  TEST_PROJECT="$(mktemp -d "${TMPDIR:-/tmp}/shogun-test-XXXXXXXX")"
   export TEST_PROJECT
   cd "${TEST_PROJECT}"
   shogun init >/dev/null 2>&1

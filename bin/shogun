@@ -78,6 +78,66 @@ ashigaru_agents() {
   echo "${list[@]}"
 }
 
+# config.yaml から project_name を取得（デフォルト shogun）
+read_project_name() {
+  local config="$1"
+  node_yaml -e '
+const yaml = require("js-yaml");
+const d = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
+process.stdout.write(String(d.project_name || "shogun"));
+' -- "$config"
+}
+
+# project_name を tmux セッション名に使える safe_name に変換
+project_safe_name() {
+  local project_name="$1"
+  local safe_name
+  safe_name="$(printf "%s" "$project_name" | LC_ALL=C tr -c 'A-Za-z0-9_-' '_')"
+  if [[ -z "$safe_name" ]]; then
+    safe_name="shogun"
+  fi
+  printf "%s" "$safe_name"
+}
+
+# SHOGUN_ROOT のシンボリックリンクを解決して物理パスを返す
+project_physical_root() {
+  local root="$1"
+  (cd "$root" && pwd -P) || { error "ディレクトリを解決できません: $root"; return 1; }
+}
+
+# 物理パスからセッション名衝突防止用の短縮 hash を生成
+project_root_hash() {
+  local root="$1"
+  local physical_root
+  physical_root="$(project_physical_root "$root")"
+  node_yaml -e '
+const crypto = require("crypto");
+process.stdout.write(crypto.createHash("sha1").update(process.argv[1]).digest("hex").slice(0, 8));
+' -- "$physical_root"
+}
+
+# project_name と SHOGUN_ROOT から Shogun が管理する tmux セッション名を生成
+project_session_names() {
+  local project_name="$1"
+  local project_root="$2"
+  local safe_name root_hash
+  safe_name="$(project_safe_name "$project_name")" || return 1
+  root_hash="$(project_root_hash "$project_root")"
+  printf "%s %s\n" "taisho-${safe_name}-${root_hash}" "multiagent-${safe_name}-${root_hash}"
+}
+
+# hash 導入前の legacy tmux セッション名を生成（既存の cmd_start と同じスペースのみ置換）
+legacy_project_session_names() {
+  local project_name="$1"
+  local safe_name="${project_name// /_}"
+  printf "%s %s\n" "taisho-${safe_name}" "multiagent-${safe_name}"
+}
+
+# tmux の曖昧マッチを避ける exact target を生成
+tmux_exact_target() {
+  printf "=%s" "$1"
+}
+
 # ════════════════════════════════════════════════════════════
 # shogun init
 # ════════════════════════════════════════════════════════════
@@ -250,7 +310,7 @@ fs.writeFileSync(queueFile, yaml.dump(data, {allowUnicode: true}));
 }
 
 # ════════════════════════════════════════════════════════════
-# shogun start [--clean] [--setup] [--count N]
+# shogun start [--clean] [--setup] [--count N] [--legacy-cleanup]
 # ════════════════════════════════════════════════════════════
 cmd_start() {
   require_init
@@ -258,11 +318,13 @@ cmd_start() {
   local do_clean=false
   local setup_only=false
   local count_override=""
+  local legacy_cleanup=false
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --clean)   do_clean=true; shift ;;
       --setup)   setup_only=true; shift ;;
+      --legacy-cleanup) legacy_cleanup=true; shift ;;
       --count)
         count_override="${2:?--count には値が必要です}"
         shift 2
@@ -282,11 +344,7 @@ cmd_start() {
 
   # config.yaml から設定読み込み
   local project_name ashigaru_count worker_model taisho_model skip_permissions
-  project_name=$(node_yaml -e '
-const yaml = require("js-yaml");
-const d = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
-process.stdout.write(String(d.project_name || "shogun"));
-' -- "$config_file")
+  project_name="$(read_project_name "$config_file")"
 
   ashigaru_count=$(node_yaml -e '
 const yaml = require("js-yaml");
@@ -318,11 +376,9 @@ process.stdout.write(v ? "true" : "false");
     ashigaru_count="$count_override"
   fi
 
-  # セッション名（スペースをアンダースコアに置換）
-  local safe_name
-  safe_name="${project_name// /_}"
-  local session_taisho="taisho-${safe_name}"
-  local session_multi="multiagent-${safe_name}"
+  # セッション名
+  local session_taisho session_multi
+  read -r session_taisho session_multi <<< "$(project_session_names "$project_name" "$SHOGUN_ROOT")" || exit 1
 
   info "プロジェクト: ${project_name}"
   info "足軽数: ${ashigaru_count}"
@@ -349,8 +405,15 @@ process.stdout.write(v ? "true" : "false");
   fi
 
   # 既存セッションを終了
-  tmux kill-session -t "$session_taisho" 2>/dev/null && info "既存セッション ${session_taisho} を終了" || true
-  tmux kill-session -t "$session_multi"  2>/dev/null && info "既存セッション ${session_multi} を終了"  || true
+  tmux kill-session -t "$(tmux_exact_target "$session_taisho")" 2>/dev/null && info "既存セッション ${session_taisho} を終了" || true
+  tmux kill-session -t "$(tmux_exact_target "$session_multi")"  2>/dev/null && info "既存セッション ${session_multi} を終了"  || true
+
+  if [[ "$legacy_cleanup" == "true" ]]; then
+    local legacy_session_taisho legacy_session_multi
+    read -r legacy_session_taisho legacy_session_multi <<< "$(legacy_project_session_names "$project_name")" || exit 1
+    tmux kill-session -t "$(tmux_exact_target "$legacy_session_taisho")" 2>/dev/null && info "既存セッション ${legacy_session_taisho} を終了" || true
+    tmux kill-session -t "$(tmux_exact_target "$legacy_session_multi")"  2>/dev/null && info "既存セッション ${legacy_session_multi} を終了"  || true
+  fi
 
   # claude コマンドのオプション
   # .shogun/config.yaml で startup.skip_permissions: true を明示した場合のみ付与
@@ -359,7 +422,7 @@ process.stdout.write(v ? "true" : "false");
     claude_opts="--dangerously-skip-permissions"
   fi
 
-  # ─── shogun-<name> セッション（Taisho 用、1ペイン）
+  # ─── taisho-<safe_name>-<hash> セッション（Taisho 用、1ペイン）
   tmux new-session -d -s "$session_taisho" -x 220 -y 50
   tmux set-option -t "$session_taisho" status-style "bg=magenta,fg=white"
 
@@ -427,6 +490,71 @@ process.stdout.write(v ? "true" : "false");
 }
 
 # ════════════════════════════════════════════════════════════
+# shogun stop
+# ════════════════════════════════════════════════════════════
+cmd_stop() {
+  if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    echo "Usage: shogun stop [--legacy]"
+    echo "  --legacy    hash 導入前の legacy tmux セッション名も停止する"
+    return 0
+  fi
+
+  require_init
+
+  local include_legacy=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --legacy)
+        include_legacy=1
+        shift
+        ;;
+      *)
+        error "不明なオプション: $1"
+        echo "Usage: shogun stop [--legacy]"
+        exit 1
+        ;;
+    esac
+  done
+
+  local config_file="${SHOGUN_ROOT}/.shogun/config.yaml"
+  local project_name
+  project_name="$(read_project_name "$config_file")"
+
+  local session_taisho session_multi
+  read -r session_taisho session_multi <<< "$(project_session_names "$project_name" "$SHOGUN_ROOT")" || exit 1
+  local sessions=("$session_taisho" "$session_multi")
+
+  if [[ "$include_legacy" -eq 1 ]]; then
+    local legacy_session_taisho legacy_session_multi
+    read -r legacy_session_taisho legacy_session_multi <<< "$(legacy_project_session_names "$project_name")" || exit 1
+    sessions+=("$legacy_session_taisho" "$legacy_session_multi")
+  fi
+
+  local stopped=0
+  local session
+
+  info "プロジェクト: ${project_name}"
+  if [[ "$include_legacy" -eq 1 ]]; then
+    info "legacy セッションも停止対象に含めます。"
+  fi
+
+  for session in "${sessions[@]}"; do
+    if tmux kill-session -t "$(tmux_exact_target "$session")" 2>/dev/null; then
+      info "セッション ${session} を終了しました。"
+      stopped=1
+    else
+      info "セッション ${session} は停止済みです。"
+    fi
+  done
+
+  if [[ "$stopped" -eq 1 ]]; then
+    success "Shogun を停止しました。"
+  else
+    success "Shogun はすでに停止しています。"
+  fi
+}
+
+# ════════════════════════════════════════════════════════════
 # shogun status
 # ════════════════════════════════════════════════════════════
 cmd_status() {
@@ -434,13 +562,10 @@ cmd_status() {
 
   local config_file="${SHOGUN_ROOT}/.shogun/config.yaml"
   local project_name
-  project_name=$(node_yaml -e '
-const yaml = require("js-yaml");
-const d = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
-process.stdout.write(String(d.project_name || "shogun"));
-' -- "$config_file")
+  project_name="$(read_project_name "$config_file")"
 
-  local safe_name="${project_name// /_}"
+  local session_taisho session_multi
+  read -r session_taisho session_multi <<< "$(project_session_names "$project_name" "$SHOGUN_ROOT")" || exit 1
 
   echo -e "${BOLD}${MAGENTA}=== Shogun Status: ${project_name} ===${RESET}"
   echo ""
@@ -491,16 +616,14 @@ process.stdout.write(String((d.tasks || []).length));
 
   # tmux セッション稼働確認
   echo -e "${BOLD}[ tmux セッション ]${RESET}"
-  local session_taisho="taisho-${safe_name}"
-  local session_multi="multiagent-${safe_name}"
 
-  if tmux has-session -t "$session_taisho" 2>/dev/null; then
+  if tmux has-session -t "$(tmux_exact_target "$session_taisho")" 2>/dev/null; then
     echo -e "  ${GREEN}●${RESET} ${session_taisho} (稼働中)"
   else
     echo -e "  ${RED}○${RESET} ${session_taisho} (停止)"
   fi
 
-  if tmux has-session -t "$session_multi" 2>/dev/null; then
+  if tmux has-session -t "$(tmux_exact_target "$session_multi")" 2>/dev/null; then
     echo -e "  ${GREEN}●${RESET} ${session_multi} (稼働中)"
   else
     echo -e "  ${RED}○${RESET} ${session_multi} (停止)"
@@ -633,20 +756,15 @@ cmd_doctor() {
     local config_file="${SHOGUN_ROOT}/.shogun/config.yaml"
     if [[ -f "$config_file" ]]; then
       local project_name
-      project_name=$(node_yaml -e '
-const yaml = require("js-yaml");
-const d = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
-process.stdout.write(String(d.project_name || "shogun"));
-' -- "$config_file" 2>/dev/null || echo "shogun")
-      local safe_name="${project_name// /_}"
-      local s1="shogun-${safe_name}"
-      local s2="multiagent-${safe_name}"
-      if tmux has-session -t "$s1" 2>/dev/null; then
+      project_name="$(read_project_name "$config_file" 2>/dev/null || echo "shogun")"
+      local s1 s2
+      read -r s1 s2 <<< "$(project_session_names "$project_name" "$SHOGUN_ROOT")"
+      if tmux has-session -t "$(tmux_exact_target "$s1")" 2>/dev/null; then
         echo -e "  ${GREEN}●${RESET} ${s1} (稼働中)"
       else
         echo -e "  ${RED}○${RESET} ${s1} (停止)"
       fi
-      if tmux has-session -t "$s2" 2>/dev/null; then
+      if tmux has-session -t "$(tmux_exact_target "$s2")" 2>/dev/null; then
         echo -e "  ${GREEN}●${RESET} ${s2} (稼働中)"
       else
         echo -e "  ${RED}○${RESET} ${s2} (停止)"
@@ -789,8 +907,9 @@ cmd_help() {
   echo ""
   echo -e "${BOLD}コマンド一覧:${RESET}"
   echo -e "  ${CYAN}init${RESET}                         プロジェクトを初期化 (.shogun/ を作成)"
-  echo -e "  ${CYAN}start${RESET} [--clean] [--setup]    エージェントを tmux で起動"
-  echo -e "       [--count N]             足軽の数を指定"
+  echo -e "  ${CYAN}start [--clean] [--setup] [--count N] [--legacy-cleanup]${RESET}"
+  echo -e "                                エージェントを tmux で起動"
+  echo -e "  ${CYAN}stop [--legacy]${RESET}               エージェントの tmux セッションを終了"
   echo -e "  ${CYAN}task${RESET} \"<説明>\" [--priority P]  新規タスクを投入"
   echo -e "  ${CYAN}status${RESET}                       現在の状態を表示"
   echo -e "  ${CYAN}logs${RESET} [--agent <名前>]         ログを表示"
@@ -820,6 +939,7 @@ case "$COMMAND" in
   init)    cmd_init "$@" ;;
   task)    cmd_task "$@" ;;
   start)   cmd_start "$@" ;;
+  stop)    cmd_stop "$@" ;;
   status)  cmd_status "$@" ;;
   logs)    cmd_logs "$@" ;;
   doctor)  cmd_doctor "$@" ;;

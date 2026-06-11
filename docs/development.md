@@ -165,7 +165,60 @@ shogun status
 - `taisho / karo / gunshi / metsuke / ashigaru1〜3` のタスク数が表示される
 - tmux セッション稼働状況が表示される
 
-### 3-5. ashigaru_count の変更確認
+### 3-5. shogun stop（停止）
+
+```bash
+cd /tmp/shogun-test
+shogun stop
+shogun status
+```
+
+確認すること:
+
+- `taisho-<safe_name>-<hash>` と `multiagent-<safe_name>-<hash>` が終了する
+- `shogun status` の tmux セッション表示がどちらも停止になる
+- `.shogun/queue/` の YAML は削除・初期化されない
+
+移行用の legacy 停止も確認する:
+
+```bash
+safe_name="$(node -e "const yaml=require('js-yaml'); const fs=require('fs'); const d=yaml.load(fs.readFileSync('.shogun/config.yaml','utf8'))||{}; process.stdout.write(String(d.project_name||'shogun').replace(/ /g, '_'));")"
+tmux new-session -d -s "taisho-${safe_name}"
+tmux new-session -d -s "multiagent-${safe_name}"
+shogun stop
+tmux has-session -t "=taisho-${safe_name}" && echo "legacy taisho remains"
+tmux has-session -t "=multiagent-${safe_name}" && echo "legacy multiagent remains"
+shogun stop --legacy
+! tmux has-session -t "=taisho-${safe_name}" && echo "legacy taisho stopped"
+! tmux has-session -t "=multiagent-${safe_name}" && echo "legacy multiagent stopped"
+```
+
+確認すること:
+
+- 通常の `shogun stop` では legacy セッションが残る
+- `shogun stop --legacy` では legacy セッションが終了する
+- `taisho` と `multiagent` の両方で同じ結果になる
+
+`shogun start --legacy-cleanup` も確認する:
+
+```bash
+tmux new-session -d -s "taisho-${safe_name}"
+tmux new-session -d -s "multiagent-${safe_name}"
+shogun start --setup
+tmux has-session -t "=taisho-${safe_name}" && echo "legacy taisho remains"
+tmux has-session -t "=multiagent-${safe_name}" && echo "legacy multiagent remains"
+shogun stop
+shogun start --setup --legacy-cleanup
+! tmux has-session -t "=taisho-${safe_name}" && echo "legacy taisho stopped"
+! tmux has-session -t "=multiagent-${safe_name}" && echo "legacy multiagent stopped"
+```
+
+確認すること:
+
+- 通常の `shogun start --setup` では legacy セッションが残る
+- `shogun start --setup --legacy-cleanup` では legacy セッションが起動前に終了する
+
+### 3-6. ashigaru_count の変更確認
 
 ```bash
 # config.yaml で人数を変更
@@ -176,7 +229,7 @@ shogun status
 # → ashigaru1〜5 が全て表示されること
 ```
 
-### 3-6. scripts の単体確認
+### 3-7. scripts の単体確認
 
 ```bash
 cd /tmp/shogun-test

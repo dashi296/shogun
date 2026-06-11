@@ -6,9 +6,27 @@ forbidden_actions:
 workflow:
   1: .shogun/queue/inbox/taisho.yaml の unread メッセージを確認
   2: Karoへ指示（inbox_write.sh karo）
-  3: .shogun/queue/reports/ を集約してdashboard.md更新
+  3: .shogun/queue/reports/ を集約して .shogun/dashboard.md 更新
   4: Shogunへ報告
   5: /clear を実行して次のタスクに備える
+dashboard:
+  path: .shogun/dashboard.md
+  update_timing:
+    - Karoから報告を受け取るたびに更新する
+    - タスク開始時: 担当・内容・状態(in_progress)を「進行中タスク」表に追記
+    - タスク完了時: 「進行中タスク」から「完了タスク」へ移動し完了日時を記入
+    - エージェントの状態変化: 「エージェント状態」表を更新する
+  format: |
+    # Shogun Dashboard — {project_name}
+    最終更新: {timestamp}
+    ## 進行中タスク
+    | コマンドID | 担当 | 内容 | 状態 |
+    ## 完了タスク
+    | コマンドID | 担当 | 内容 | 完了日時 |
+    ## エージェント状態
+    | エージェント | 現在のタスク | 状態 |
+    ## スキル候補
+    （Ashigaru から提案があればここに記載）
 recovery_after_clear:
   手順:
     1: .shogun/queue/inbox/taisho.yaml を確認（read/unread 両方）

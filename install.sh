@@ -25,12 +25,15 @@ REPO_URL="https://github.com/dashi296/shogun"
 INSTALL_VERSION="__VERSION__"   # GitHub Actions がリリース時に実バージョンへ置換
 
 # GitHub Releases からダウンロードされた install.sh 以外での実行を防ぐ
-[[ "${INSTALL_VERSION}" == "__VERSION__" ]] && {
+# SHOGUN_DEV_INSTALL=1 を設定することで開発時のローカルテストをバイパスできる
+[[ "${INSTALL_VERSION}" == "__VERSION__" && -z "${SHOGUN_DEV_INSTALL:-}" ]] && {
   log_err "このスクリプトはバージョン置換前です。"
   log_err "GitHub Releases からダウンロードして実行してください:"
   log_err "  curl -fsSL https://github.com/dashi296/shogun/releases/latest/download/install.sh | bash"
+  log_err "開発用にローカルテストする場合: SHOGUN_DEV_INSTALL=1 ./install.sh"
   exit 1
 }
+[[ "${INSTALL_VERSION}" == "__VERSION__" ]] && INSTALL_VERSION="dev"
 
 # ════════════════════════════════════════════════════════════
 # STEP 1: 依存ツールチェック

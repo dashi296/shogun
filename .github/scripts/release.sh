@@ -1,8 +1,18 @@
 #!/usr/bin/env bash
-# 使い方: .github/scripts/release.sh 0.0.2
+# 使い方: .github/scripts/release.sh [--dry-run] 0.0.2
 set -euo pipefail
 
-VERSION="${1:?使い方: $0 <version> (例: 0.0.2)}"
+DRY_RUN=false
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run) DRY_RUN=true; shift ;;
+    *)         POSITIONAL+=("$1"); shift ;;
+  esac
+done
+set -- "${POSITIONAL[@]}"
+
+VERSION="${1:?使い方: $0 [--dry-run] <version> (例: 0.0.2)}"
 TAG="v${VERSION}"
 
 # semver バリデーション
@@ -32,6 +42,22 @@ fi
 if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q .; then
   echo "ERROR: リモートにタグ ${TAG} がすでに存在します" >&2
   exit 1
+fi
+
+# テスト実行
+echo "テストを実行します..."
+npm run test:unit || {
+  echo "ERROR: テストが失敗しました。リリースを中止します。" >&2
+  exit 1
+}
+
+if [[ "${DRY_RUN}" == "true" ]]; then
+  echo "[DRY RUN] リリース内容のプレビュー:"
+  echo "  バージョン : ${VERSION}"
+  echo "  タグ       : ${TAG}"
+  echo "  ブランチ   : ${current_branch}"
+  echo "[DRY RUN] 実際の変更は行いません。"
+  exit 0
 fi
 
 # package.json のバージョンを更新（Node.js を使い macOS/Linux 両対応）

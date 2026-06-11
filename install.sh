@@ -33,7 +33,7 @@ INSTALL_VERSION="__VERSION__"   # GitHub Actions がリリース時に実バー�
   log_err "開発用にローカルテストする場合: SHOGUN_DEV_INSTALL=1 ./install.sh"
   exit 1
 }
-[[ "${INSTALL_VERSION}" == "__VERSION__" ]] && INSTALL_VERSION="dev"
+[[ "${INSTALL_VERSION}" == "__VERSION__" ]] && INSTALL_VERSION="main"
 
 # ════════════════════════════════════════════════════════════
 # STEP 1: 依存ツールチェック

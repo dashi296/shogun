@@ -43,7 +43,12 @@ node -e "
 "
 npm install --package-lock-only --silent
 git add package.json package-lock.json
-git commit -m "chore: bump version to ${VERSION}"
+# すでに同じバージョンの場合は差分なし → コミットをスキップしてタグ作成へ進む
+if ! git diff --cached --quiet; then
+  git commit -m "chore: bump version to ${VERSION}"
+else
+  echo "package.json はすでに ${VERSION} です。バージョンバンプコミットをスキップします。"
+fi
 
 git tag "${TAG}"
 git push origin main

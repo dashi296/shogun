@@ -665,9 +665,59 @@ process.stdout.write(String(d.project_name || "shogun"));
 # shogun upgrade
 # ════════════════════════════════════════════════════════════
 cmd_upgrade() {
+  local target_version=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --version)   target_version="$2"; shift 2 ;;
+      --version=*) target_version="${1#--version=}"; shift ;;
+      *)           shift ;;
+    esac
+  done
+
   info "Shogun をアップデートします: ${SHOGUN_BIN_DIR}"
-  git -C "${SHOGUN_BIN_DIR}" pull --ff-only
-  success "アップデート完了。"
+
+  if [[ -z "${target_version}" ]]; then
+    info "GitHub API から最新バージョンを取得中..."
+    local api_response
+    api_response="$(curl -fsSL \
+      -H "Accept: application/vnd.github+json" \
+      "https://api.github.com/repos/dashi296/shogun/releases/latest" 2>/dev/null)" || {
+      error "GitHub API へのアクセスに失敗しました。shogun upgrade --version v0.0.2 で明示してください。"
+      exit 1
+    }
+    if command -v jq &>/dev/null; then
+      target_version="$(echo "${api_response}" | jq -r '.tag_name // empty')"
+    else
+      target_version="$(echo "${api_response}" | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
+    fi
+    [[ -z "${target_version}" ]] && { error "バージョン情報を取得できませんでした。"; exit 1; }
+  fi
+
+  # タグ名のバリデーション（v1.2.3 形式のみ許可）
+  [[ "${target_version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+    error "不正なバージョン形式: ${target_version}（例: v0.0.2）"
+    exit 1
+  }
+
+  local current_tag
+  current_tag="$(git -C "${SHOGUN_BIN_DIR}" describe --tags --exact-match HEAD 2>/dev/null || echo "不明")"
+  [[ "${current_tag}" == "${target_version}" ]] && { success "すでに ${target_version} です。"; return 0; }
+
+  # shallow clone なら unshallow してから全タグを取得
+  if git -C "${SHOGUN_BIN_DIR}" rev-parse --is-shallow-repository 2>/dev/null | grep -q true; then
+    git -C "${SHOGUN_BIN_DIR}" fetch --unshallow --quiet || true
+  fi
+  git -C "${SHOGUN_BIN_DIR}" fetch --tags --quiet
+
+  if git -C "${SHOGUN_BIN_DIR}" checkout "${target_version}" --quiet; then
+    if ! (cd "${SHOGUN_BIN_DIR}" && npm install --omit=dev --silent); then
+      error "npm install に失敗しました。Node.js のバージョンを確認してください（v18 以上推奨）。"
+      exit 1
+    fi
+    success "Shogun を ${target_version} にアップデートしました。"
+  else
+    error "バージョン ${target_version} が見つかりません。"; exit 1
+  fi
 }
 
 # ════════════════════════════════════════════════════════════

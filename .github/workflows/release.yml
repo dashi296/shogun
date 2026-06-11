@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run test:unit
+
+  release:
+    name: Create GitHub Release
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Verify package.json version matches tag
+        run: |
+          pkg_version="v$(node -p "require('./package.json').version")"
+          if [[ "${pkg_version}" != "${GITHUB_REF_NAME}" ]]; then
+            echo "ERROR: package.json の version (${pkg_version}) とタグ (${GITHUB_REF_NAME}) が一致しません"
+            exit 1
+          fi
+
+      - name: Embed version into install.sh
+        run: |
+          version="${GITHUB_REF_NAME}"
+          [[ "${version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "ERROR: 不正なバージョン形式: ${version}"
+            exit 1
+          }
+          sed -i "s/__VERSION__/${version}/g" install.sh
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: install.sh

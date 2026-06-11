@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 使い方: ./scripts/release.sh 0.0.2
+# 使い方: .github/scripts/release.sh 0.0.2
 set -euo pipefail
 
 VERSION="${1:?使い方: $0 <version> (例: 0.0.2)}"

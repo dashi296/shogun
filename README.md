@@ -15,7 +15,7 @@ source ~/.zshrc  # または ~/.bashrc
 特定バージョンをインストールする場合:
 
 ```bash
-curl -fsSL https://github.com/dashi296/shogun/releases/download/v0.0.1/install.sh | bash
+curl -fsSL https://github.com/dashi296/shogun/releases/download/<version>/install.sh | bash
 ```
 
 ## Quick Start

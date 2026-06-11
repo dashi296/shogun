@@ -664,6 +664,19 @@ process.stdout.write(String(d.project_name || "shogun"));
 # ════════════════════════════════════════════════════════════
 # shogun upgrade
 # ════════════════════════════════════════════════════════════
+_semver_lt() {
+  local a="${1#v}" b="${2#v}"
+  [[ "$a" == "$b" ]] && return 1
+  local IFS=.
+  local va=($a) vb=($b)
+  for i in 0 1 2; do
+    local na="${va[$i]:-0}" nb="${vb[$i]:-0}"
+    (( na < nb )) && return 0
+    (( na > nb )) && return 1
+  done
+  return 1
+}
+
 cmd_upgrade() {
   local target_version=""
   while [[ $# -gt 0 ]]; do
@@ -671,8 +684,11 @@ cmd_upgrade() {
       --version)
         [[ "${2:-}" ]] || { error "--version には値が必要です（例: shogun upgrade --version v0.0.2）"; exit 1; }
         target_version="$2"; shift 2 ;;
-      --version=*) target_version="${1#--version=}"; shift ;;
-      *)           shift ;;
+      --version=*)
+        target_version="${1#--version=}"
+        [[ -n "${target_version}" ]] || { error "--version には値が必要です（例: shogun upgrade --version v0.0.2）"; exit 1; }
+        shift ;;
+      *)           error "不明なオプション: $1"; exit 1 ;;
     esac
   done
 
@@ -681,8 +697,9 @@ cmd_upgrade() {
   if [[ -z "${target_version}" ]]; then
     info "GitHub API から最新バージョンを取得中..."
     local api_response
-    api_response="$(curl -fsSL \
-      -H "Accept: application/vnd.github+json" \
+    local curl_args=(-fsSL -H "Accept: application/vnd.github+json")
+    [[ -n "${GITHUB_TOKEN:-}" ]] && curl_args+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+    api_response="$(curl "${curl_args[@]}" \
       "https://api.github.com/repos/dashi296/shogun/releases/latest" 2>/dev/null)" || {
       error "GitHub API へのアクセスに失敗しました。shogun upgrade --version v0.0.2 で明示してください。"
       exit 1
@@ -704,6 +721,9 @@ cmd_upgrade() {
   local current_tag
   current_tag="$(git -C "${SHOGUN_BIN_DIR}" describe --tags --exact-match HEAD 2>/dev/null || echo "不明")"
   [[ "${current_tag}" == "${target_version}" ]] && { success "すでに ${target_version} です。"; return 0; }
+  if [[ "${current_tag}" != "不明" ]] && _semver_lt "${target_version}" "${current_tag}"; then
+    warn "指定バージョン ${target_version} は現在の ${current_tag} より古いです。ダウングレードします。"
+  fi
 
   # shallow clone なら unshallow してから全タグを取得
   if git -C "${SHOGUN_BIN_DIR}" rev-parse --is-shallow-repository 2>/dev/null | grep -q true; then

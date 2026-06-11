@@ -321,7 +321,7 @@ process.stdout.write(v ? "true" : "false");
   # セッション名（スペースをアンダースコアに置換）
   local safe_name
   safe_name="${project_name// /_}"
-  local session_taisho="shogun-${safe_name}"
+  local session_taisho="taisho-${safe_name}"
   local session_multi="multiagent-${safe_name}"
 
   info "プロジェクト: ${project_name}"
@@ -491,7 +491,7 @@ process.stdout.write(String((d.tasks || []).length));
 
   # tmux セッション稼働確認
   echo -e "${BOLD}[ tmux セッション ]${RESET}"
-  local session_taisho="shogun-${safe_name}"
+  local session_taisho="taisho-${safe_name}"
   local session_multi="multiagent-${safe_name}"
 
   if tmux has-session -t "$session_taisho" 2>/dev/null; then

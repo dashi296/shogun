@@ -59,12 +59,12 @@ process.stdout.write(d.commands[0].command);
   [ "$output" = "implement login page" ]
 }
 
-@test "task: writes notification to karo inbox" {
+@test "task: writes notification to taisho inbox" {
   shogun task "build auth feature"
 
   run node -e "
 const yaml = require('js-yaml');
-const d = yaml.load(require('fs').readFileSync('.shogun/queue/inbox/karo.yaml', 'utf8'));
+const d = yaml.load(require('fs').readFileSync('.shogun/queue/inbox/taisho.yaml', 'utf8'));
 process.stdout.write(String(d.messages.length));
 "
   [ "$output" = "1" ]

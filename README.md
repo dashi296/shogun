@@ -75,6 +75,8 @@ shogun start                  # エージェント起動
 shogun start --clean          # キューをリセットして起動
 shogun start --count 5        # Ashigaru を5人で起動
 shogun start --setup          # tmux セッションのみ作成（エージェント未起動）
+shogun attach                 # Taisho セッションに接続
+shogun attach multi           # マルチエージェントセッションに接続
 shogun stop                   # エージェント停止
 shogun stop --legacy          # hash 導入前の legacy tmux セッションも停止
 shogun start --legacy-cleanup # 起動前に hash 導入前の legacy tmux セッションも停止

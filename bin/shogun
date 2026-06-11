@@ -187,6 +187,10 @@ cmd_init() {
   } > "$tmp_config"
   mv "$tmp_config" "${shogun_dir}/config.yaml"
 
+  # templates/dashboard.md → .shogun/dashboard.md（project_name を埋め込む）
+  sed "s/{{project_name}}/${project_name}/g" \
+    "${templates}/dashboard.md" > "${shogun_dir}/dashboard.md"
+
   # queue/shogun_to_karo.yaml を初期化
   echo "commands: []" > "${shogun_dir}/queue/shogun_to_karo.yaml"
 
@@ -630,6 +634,16 @@ process.stdout.write(String((d.tasks || []).length));
     echo -e "  ${GREEN}●${RESET} ${session_multi} (稼働中)"
   else
     echo -e "  ${RED}○${RESET} ${session_multi} (停止)"
+  fi
+
+  # dashboard
+  local dashboard="${SHOGUN_ROOT}/.shogun/dashboard.md"
+  echo ""
+  echo -e "${BOLD}[ dashboard ]${RESET}"
+  if [[ -f "$dashboard" ]]; then
+    echo -e "  ${dashboard}"
+  else
+    echo -e "  (dashboard.md が見つかりません。shogun init を再実行してください)"
   fi
 }
 

@@ -109,3 +109,15 @@ process.stdout.write(JSON.stringify(d.messages));
   shogun init
   grep -q "Shogun" .gitignore
 }
+
+@test "init: creates dashboard.md in .shogun/" {
+  shogun init
+  [ -f ".shogun/dashboard.md" ]
+}
+
+@test "init: dashboard.md contains project name" {
+  shogun init
+  local project_name
+  project_name="$(basename "${TEST_PROJECT}")"
+  grep -q "$project_name" ".shogun/dashboard.md"
+}

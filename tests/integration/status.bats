@@ -28,6 +28,12 @@ teardown() {
   [[ "$output" == *"metsuke"* ]]
 }
 
+@test "status: shows dashboard path" {
+  run shogun status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"dashboard"* ]]
+}
+
 @test "status: fails outside initialized directory" {
   local no_init_dir
   no_init_dir="$(mktemp -d)"

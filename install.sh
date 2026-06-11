@@ -127,14 +127,29 @@ _installed=false
 
 if [[ -d "${INSTALL_DIR}/.git" ]]; then
   log_info "既存のインストールを ${INSTALL_VERSION} に更新します: ${INSTALL_DIR}"
+  # clone を一時ディレクトリへ行い、成功後に既存ディレクトリと置き換えるヘルパー
+  # （失敗しても既存インストールを消さない）
+  _fresh_install() {
+    local tmp_dir
+    tmp_dir="$(mktemp -d)"
+    if git clone --branch "${INSTALL_VERSION}" --depth 1 "${REPO_URL}" "${tmp_dir}"; then
+      rm -rf "${INSTALL_DIR}"
+      mv "${tmp_dir}" "${INSTALL_DIR}"
+      log_ok "フレームワーク ${INSTALL_VERSION} を再インストールしました"
+      _installed=true
+    else
+      rm -rf "${tmp_dir}"
+      log_err "再インストールに失敗しました。既存のインストールを維持します。"
+      ERRORS=$((ERRORS+1))
+      _installed=true  # 後続ステップをスキップ
+    fi
+  }
+
   # shallow clone なら unshallow（失敗したらフレッシュインストールで代替）
   if git -C "${INSTALL_DIR}" rev-parse --is-shallow-repository 2>/dev/null | grep -q true; then
     if ! git -C "${INSTALL_DIR}" fetch --unshallow --quiet; then
       log_warn "--unshallow に失敗しました。フレッシュインストールを試みます..."
-      rm -rf "${INSTALL_DIR}"
-      git clone --branch "${INSTALL_VERSION}" --depth 1 "${REPO_URL}" "${INSTALL_DIR}"
-      log_ok "フレームワーク ${INSTALL_VERSION} を再インストールしました"
-      _installed=true
+      _fresh_install
     fi
   fi
   if [[ "${_installed}" == false ]]; then
@@ -143,9 +158,7 @@ if [[ -d "${INSTALL_DIR}/.git" ]]; then
       log_ok "フレームワークを ${INSTALL_VERSION} に更新しました"
     else
       log_warn "バージョン ${INSTALL_VERSION} への切り替えに失敗しました。フレッシュインストールを試みます..."
-      rm -rf "${INSTALL_DIR}"
-      git clone --branch "${INSTALL_VERSION}" --depth 1 "${REPO_URL}" "${INSTALL_DIR}"
-      log_ok "フレームワーク ${INSTALL_VERSION} を再インストールしました"
+      _fresh_install
     fi
   fi
 else

@@ -13,15 +13,19 @@ export NODE_PATH="${_SCRIPT_DIR}/../node_modules${NODE_PATH:+:$NODE_PATH}"
 # ────────────────────────────────────────────────────────────
 
 # 変更された report ファイルで上位エージェントを起こすべきか判定する。
-# 引数: <変更ファイルの basename> <自分の agent_id>
+# 引数: <変更ファイルの basename> <自分が消費する報告元の空白区切りリスト(sources)>
 # 戻り値: 起こすべきなら 0、無視すべきなら 1
-#   - *_report.yaml 以外（.swp や一時ファイル等）は無視
-#   - 自分自身の report は無視（自己 wake ループ防止）
+#   - sources に含まれる報告元の <src>_report.yaml のみで起こす（allowlist）
+#   - sources に自分を含めないため自己 wake ループは起きない
+#   - Taisho の sources は karo のみ。下位エージェントの個別報告では起こさず、
+#     Karo の集約報告だけに反応する（階層バイパス・早すぎる集約を防止）
 should_wake_on_report() {
-  local base="$1" self="$2"
+  local base="$1" sources="$2" src
   [[ "$base" == *_report.yaml ]] || return 1
-  [[ "$base" == "${self}_report.yaml" ]] && return 1
-  return 0
+  for src in $sources; do
+    [[ "$base" == "${src}_report.yaml" ]] && return 0
+  done
+  return 1
 }
 
 # ────────────────────────────────────────────────────────────
@@ -70,13 +74,13 @@ watch_inbox() {
 watch_reports() {
   mkdir -p "$REPORTS_DIR"
   if [[ "$OS" == "Darwin" ]]; then
-    # -o を付けず変更パスを取得し、自分以外の report 更新のみで wake する
+    # -o を付けず変更パスを取得し、消費する報告元(REPORT_SOURCES)の更新のみで wake する
     fswatch --latency 0.5 "$REPORTS_DIR" | while read -r changed; do
-      should_wake_on_report "$(basename "$changed")" "$AGENT_ID" && wake_up_reports
+      should_wake_on_report "$(basename "$changed")" "$REPORT_SOURCES" && wake_up_reports
     done
   else
     inotifywait -m -e close_write --format '%f' "$REPORTS_DIR" 2>/dev/null | while read -r base; do
-      should_wake_on_report "$base" "$AGENT_ID" && wake_up_reports
+      should_wake_on_report "$base" "$REPORT_SOURCES" && wake_up_reports
     done
   fi
 }
@@ -91,6 +95,9 @@ main() {
 
   INBOX="${ROOT}/.shogun/queue/inbox/${AGENT_ID}.yaml"
   REPORTS_DIR="${ROOT}/.shogun/queue/reports"
+  # 消費する報告元の allowlist（空白区切り）。bin/shogun が役職ごとに設定する。
+  #   karo  -> "gunshi metsuke ashigaru1 ..." / taisho -> "karo"
+  REPORT_SOURCES="${SHOGUN_REPORT_SOURCES:-}"
   mkdir -p "$(dirname "$INBOX")"
   [[ -f "$INBOX" ]] || echo "messages: []" > "$INBOX"
 
@@ -101,8 +108,8 @@ main() {
     command -v inotifywait &>/dev/null || { echo "ERROR: sudo apt install inotify-tools を実行してください"; exit 1; }
   fi
 
-  # reports/ 監視は Karo / Taisho のみ有効化（bin/shogun が SHOGUN_WATCH_REPORTS=1 を付与）
-  if [[ "${SHOGUN_WATCH_REPORTS:-0}" == "1" ]]; then
+  # reports/ 監視は報告元 allowlist が指定されたとき（Karo / Taisho）だけ有効化
+  if [[ -n "$REPORT_SOURCES" ]]; then
     watch_reports &
   fi
   watch_inbox

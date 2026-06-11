@@ -51,7 +51,8 @@ STUB
 
   run grep "inbox_watcher.sh karo " "$TMUX_LOG"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"SHOGUN_REPORT_SOURCES='gunshi metsuke ashigaru1"* ]]
+  # 固定役職 gunshi/metsuke の包含で allowlist 配線を確認（ashigaru 数には依存しない）
+  [[ "$output" == *"SHOGUN_REPORT_SOURCES='gunshi metsuke"* ]]
 }
 
 @test "start: does not pass SHOGUN_REPORT_SOURCES to worker watchers" {

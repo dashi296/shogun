@@ -3,8 +3,15 @@
 set -euo pipefail
 
 # ─── パス解決 ──────────────────────────────────────────────
-# このスクリプト自体のディレクトリ（bin/）
-_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# シンボリックリンクを辿って実体のディレクトリ（bin/）を取得
+_src="${BASH_SOURCE[0]}"
+while [[ -L "${_src}" ]]; do
+  _dir="$(cd -P "$(dirname "${_src}")" && pwd)"
+  _src="$(readlink "${_src}")"
+  [[ "${_src}" != /* ]] && _src="${_dir}/${_src}"
+done
+_SCRIPT_DIR="$(cd -P "$(dirname "${_src}")" && pwd)"
+unset _src _dir
 # リポジトリルート（bin/ の1階層上）
 SHOGUN_BIN_DIR="$(cd "${_SCRIPT_DIR}/.." && pwd)"
 

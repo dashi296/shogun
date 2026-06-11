@@ -241,10 +241,10 @@ fs.writeFileSync(queueFile, yaml.dump(data, {allowUnicode: true}));
   info "説明: ${task_desc}"
   info "優先度: ${priority}"
 
-  # inbox_write.sh 経由で karo に通知
+  # inbox_write.sh 経由で taisho に通知
   SHOGUN_ROOT="${SHOGUN_ROOT}" SHOGUN_ROLE=shogun \
     bash "${SHOGUN_BIN_DIR}/scripts/inbox_write.sh" \
-    karo \
+    taisho \
     "新規タスク: ${cmd_id}" \
     "${task_desc}"
 }

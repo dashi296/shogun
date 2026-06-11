@@ -41,7 +41,8 @@ node -e "
   pkg.version = '${VERSION}';
   fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
 "
-git add package.json
+npm install --package-lock-only --silent
+git add package.json package-lock.json
 git commit -m "chore: bump version to ${VERSION}"
 
 git tag "${TAG}"

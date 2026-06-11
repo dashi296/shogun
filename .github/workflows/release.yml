@@ -50,7 +50,7 @@ jobs:
             echo "ERROR: 不正なバージョン形式: ${version}"
             exit 1
           }
-          sed -i "s/^INSTALL_VERSION=\"__VERSION__\"/INSTALL_VERSION=\"${version}\"/" install.sh
+          sed -i "s/^INSTALL_VERSION=\"__VERSION__\"$/INSTALL_VERSION=\"${version}\"/" install.sh
 
       - uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
         with:

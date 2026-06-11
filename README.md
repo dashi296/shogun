@@ -8,8 +8,14 @@
 ## インストール
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dashi296/shogun/main/install.sh | bash
+curl -fsSL https://github.com/dashi296/shogun/releases/latest/download/install.sh | bash
 source ~/.zshrc  # または ~/.bashrc
+```
+
+特定バージョンをインストールする場合:
+
+```bash
+curl -fsSL https://github.com/dashi296/shogun/releases/download/v0.0.1/install.sh | bash
 ```
 
 ## Quick Start

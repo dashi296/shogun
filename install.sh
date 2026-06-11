@@ -126,15 +126,21 @@ echo ""
 log_info "STEP 2: フレームワーク本体のインストール"
 echo "──────────────────────────────────────────"
 
-# clone を一時ディレクトリへ行い、成功後に既存ディレクトリと置き換えるヘルパー
-# （失敗しても既存インストールを消さない）
+# clone と npm install を一時ディレクトリで完了してから既存ディレクトリと置き換えるヘルパー
+# （npm install まで成功しない限り既存インストールを消さない）
 _fresh_install() {
   local tmp_dir
   tmp_dir="$(mktemp -d)"
   if git clone --branch "${INSTALL_VERSION}" --depth 1 "${REPO_URL}" "${tmp_dir}"; then
-    rm -rf "${INSTALL_DIR}"
-    mv "${tmp_dir}" "${INSTALL_DIR}"
-    log_ok "フレームワーク ${INSTALL_VERSION} を再インストールしました"
+    if (cd "${tmp_dir}" && npm install --omit=dev --silent); then
+      rm -rf "${INSTALL_DIR}"
+      mv "${tmp_dir}" "${INSTALL_DIR}"
+      log_ok "フレームワーク ${INSTALL_VERSION} を再インストールしました"
+    else
+      rm -rf "${tmp_dir}"
+      log_err "npm install に失敗しました。既存のインストールを維持します。"
+      exit 1
+    fi
   else
     rm -rf "${tmp_dir}"
     log_err "再インストールに失敗しました。既存のインストールを維持します。"

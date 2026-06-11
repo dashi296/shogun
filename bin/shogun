@@ -720,8 +720,9 @@ cmd_upgrade() {
     exit 1
   }
 
-  local current_tag
+  local current_tag current_ref
   current_tag="$(git -C "${SHOGUN_BIN_DIR}" describe --tags --exact-match HEAD 2>/dev/null || echo "不明")"
+  current_ref="$(git -C "${SHOGUN_BIN_DIR}" rev-parse HEAD 2>/dev/null || echo "")"
   [[ "${current_tag}" == "${target_version}" ]] && { success "すでに ${target_version} です。"; return 0; }
   if [[ "${current_tag}" != "不明" ]] && _semver_lt "${target_version}" "${current_tag}"; then
     warn "指定バージョン ${target_version} は現在の ${current_tag} より古いです。ダウングレードします。"
@@ -736,9 +737,12 @@ cmd_upgrade() {
   if git -C "${SHOGUN_BIN_DIR}" checkout "${target_version}" --quiet; then
     if ! (cd "${SHOGUN_BIN_DIR}" && npm install --omit=dev); then
       error "npm install に失敗しました。Node.js のバージョンを確認してください（v18 以上推奨）。"
-      if [[ "${current_tag}" != "不明" ]]; then
-        warn "${current_tag} にロールバックします..."
-        git -C "${SHOGUN_BIN_DIR}" checkout "${current_tag}" --quiet || true
+      if [[ -n "${current_ref}" ]]; then
+        local rollback_target
+        rollback_target="${current_tag}"
+        [[ "${current_tag}" == "不明" ]] && rollback_target="${current_ref}"
+        warn "${rollback_target} にロールバックします..."
+        git -C "${SHOGUN_BIN_DIR}" checkout "${rollback_target}" --quiet || true
       fi
       exit 1
     fi

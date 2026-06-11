@@ -102,7 +102,7 @@ project_safe_name() {
 # SHOGUN_ROOT のシンボリックリンクを解決して物理パスを返す
 project_physical_root() {
   local root="$1"
-  (cd "$root" && pwd -P)
+  (cd "$root" && pwd -P) || { error "ディレクトリを解決できません: $root"; return 1; }
 }
 
 # 物理パスからセッション名衝突防止用の短縮 hash を生成

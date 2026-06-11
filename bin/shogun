@@ -510,6 +510,54 @@ process.stdout.write(v ? "true" : "false");
 }
 
 # ════════════════════════════════════════════════════════════
+# shogun attach [taisho|multi|multiagent]
+# ════════════════════════════════════════════════════════════
+cmd_attach() {
+  require_init
+
+  local target="${1:-taisho}"
+
+  if ! [[ "$target" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    error "不正なターゲット名: ${target}"
+    exit 1
+  fi
+
+  local config_file="${SHOGUN_ROOT}/.shogun/config.yaml"
+  local project_name
+  project_name="$(read_project_name "$config_file")"
+
+  local session_taisho session_multi
+  read -r session_taisho session_multi <<< "$(project_session_names "$project_name" "$SHOGUN_ROOT")" || exit 1
+
+  local session_name
+  case "$target" in
+    taisho)
+      session_name="$session_taisho"
+      ;;
+    multi|multiagent)
+      session_name="$session_multi"
+      ;;
+    *)
+      error "不明なターゲット: ${target}"
+      echo "Usage: shogun attach [taisho|multi]"
+      exit 1
+      ;;
+  esac
+
+  if ! tmux has-session -t "$(tmux_exact_target "$session_name")" 2>/dev/null; then
+    error "セッション ${session_name} が見つかりません。"
+    echo "       先に shogun start を実行してください。"
+    exit 1
+  fi
+
+  if [[ -n "${TMUX:-}" ]]; then
+    tmux switch-client -t "$(tmux_exact_target "$session_name")"
+  else
+    exec tmux attach-session -t "$(tmux_exact_target "$session_name")"
+  fi
+}
+
+# ════════════════════════════════════════════════════════════
 # shogun stop
 # ════════════════════════════════════════════════════════════
 cmd_stop() {
@@ -939,6 +987,7 @@ cmd_help() {
   echo -e "  ${CYAN}init${RESET}                         プロジェクトを初期化 (.shogun/ を作成)"
   echo -e "  ${CYAN}start [--clean] [--setup] [--count N] [--legacy-cleanup]${RESET}"
   echo -e "                                エージェントを tmux で起動"
+  echo -e "  ${CYAN}attach${RESET} [taisho|multi]          tmux セッションに接続"
   echo -e "  ${CYAN}stop [--legacy]${RESET}               エージェントの tmux セッションを終了"
   echo -e "  ${CYAN}task${RESET} \"<説明>\" [--priority P]  新規タスクを投入"
   echo -e "  ${CYAN}status${RESET}                       現在の状態を表示"
@@ -969,6 +1018,7 @@ case "$COMMAND" in
   init)    cmd_init "$@" ;;
   task)    cmd_task "$@" ;;
   start)   cmd_start "$@" ;;
+  attach)  cmd_attach "$@" ;;
   stop)    cmd_stop "$@" ;;
   status)  cmd_status "$@" ;;
   logs)    cmd_logs "$@" ;;

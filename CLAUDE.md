@@ -15,7 +15,7 @@ Shogun は AI エージェントを武家社会の階層構造で統率する、
 ファイル変更検知で wake-up します。
 
 詳細は [README.md](README.md)、開発環境の構築・動作確認は
-[docs/development.md](docs/development.md) を参照してください。
+[DEVELOPMENT.md](DEVELOPMENT.md) を参照してください。
 
 ## ディレクトリ構成と役割
 

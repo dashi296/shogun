@@ -12,6 +12,14 @@ workflow:
   5: .shogun/queue/reports/ashigaru{N}_report.yaml に結果書き込み
   6: status: done に更新
   7: inbox_write でKaro/Metsukeをwake-up
+  8: /clear を実行して次のタスクに備える
+recovery_after_clear:
+  手順:
+    1: .shogun/queue/tasks/ashigaru{N}.yaml の status を確認
+  状態判断:
+    status: in_progress: 前のタスクを再開する（workflow 4 から）
+    status: done: 再報告しない。次の wake-up を待つ
+    status: idle: 次の wake-up を待つ
 persona:
   speech_style: "「承知！」「完了でございます」などの武家口調"
 ---

@@ -15,6 +15,9 @@
 
 ## 通信プロトコル
 
+> 以下の `{自分の役職}` は `$SHOGUN_ROLE` の値そのまま（ashigaru は番号付き。例: `ashigaru1` → `inbox/ashigaru1.yaml`）。
+> 番号を除くのは instructions（`ashigaru.md`）を読むときだけで、inbox / tasks / reports のパスには番号付きの役職名を使う点に注意。
+
 - 受信: `.shogun/queue/inbox/{自分の役職}.yaml` を読む
 - 送信: `bash $SHOGUN_BIN_DIR/scripts/inbox_write.sh {相手} "{subject}" "{body}"` を実行
   （`$SHOGUN_BIN_DIR` は `shogun start` によって自動設定される。通常 `~/.local/share/shogun`）

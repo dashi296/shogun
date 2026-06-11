@@ -142,7 +142,10 @@ if [[ -d "${INSTALL_DIR}/.git" ]]; then
        && git -C "${INSTALL_DIR}" checkout "${INSTALL_VERSION}" --quiet; then
       log_ok "フレームワークを ${INSTALL_VERSION} に更新しました"
     else
-      log_warn "バージョン ${INSTALL_VERSION} への切り替えに失敗しました"
+      log_warn "バージョン ${INSTALL_VERSION} への切り替えに失敗しました。フレッシュインストールを試みます..."
+      rm -rf "${INSTALL_DIR}"
+      git clone --branch "${INSTALL_VERSION}" --depth 1 "${REPO_URL}" "${INSTALL_DIR}"
+      log_ok "フレームワーク ${INSTALL_VERSION} を再インストールしました"
     fi
   fi
 else

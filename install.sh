@@ -140,8 +140,7 @@ if [[ -d "${INSTALL_DIR}/.git" ]]; then
     else
       rm -rf "${tmp_dir}"
       log_err "再インストールに失敗しました。既存のインストールを維持します。"
-      ERRORS=$((ERRORS+1))
-      _installed=true  # 後続ステップをスキップ
+      exit 1
     fi
   }
 

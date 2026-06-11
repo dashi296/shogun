@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shogun インストーラー
-# 使い方: curl -fsSL https://raw.githubusercontent.com/dashi296/shogun/main/install.sh | bash
+# 使い方: curl -fsSL https://github.com/dashi296/shogun/releases/latest/download/install.sh | bash
 set -euo pipefail
 
 # ─── カラー & ログ ──────────────────────────────────────────
@@ -18,10 +18,22 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC}  $*"; WARNINGS=$((WARNINGS+1)); }
 log_err()  { echo -e "${RED}[ERR]${NC}   $*"; ERRORS=$((ERRORS+1)); }
 log_info() { echo -e "${BLUE}[INFO]${NC}  $*"; }
 
-# ─── インストール先・リポジトリURL（ハードコード）──────────
+# ─── インストール先・リポジトリURL・バージョン ────────────
 INSTALL_DIR="${HOME}/.local/share/shogun"
 BIN_DIR="${HOME}/.local/bin"
 REPO_URL="https://github.com/dashi296/shogun"
+INSTALL_VERSION="__VERSION__"   # GitHub Actions がリリース時に実バージョンへ置換
+
+# GitHub Releases からダウンロードされた install.sh 以外での実行を防ぐ
+# SHOGUN_DEV_INSTALL=1 を設定することで開発時のローカルテストをバイパスできる
+[[ "${INSTALL_VERSION}" == "__VERSION__" && -z "${SHOGUN_DEV_INSTALL:-}" ]] && {
+  log_err "このスクリプトはバージョン置換前です。"
+  log_err "GitHub Releases からダウンロードして実行してください:"
+  log_err "  curl -fsSL https://github.com/dashi296/shogun/releases/latest/download/install.sh | bash"
+  log_err "開発用にローカルテストする場合: SHOGUN_DEV_INSTALL=1 ./install.sh"
+  exit 1
+}
+[[ "${INSTALL_VERSION}" == "__VERSION__" ]] && INSTALL_VERSION="dev"
 
 # ════════════════════════════════════════════════════════════
 # STEP 1: 依存ツールチェック
@@ -114,18 +126,52 @@ echo ""
 log_info "STEP 2: フレームワーク本体のインストール"
 echo "──────────────────────────────────────────"
 
-if [[ -d "${INSTALL_DIR}/.git" ]]; then
-  log_info "既存のインストールを更新します: ${INSTALL_DIR}"
-  if git -C "${INSTALL_DIR}" pull --ff-only; then
-    log_ok "フレームワークを更新しました"
+# clone と npm install を一時ディレクトリで完了してから既存ディレクトリと置き換えるヘルパー
+# （npm install まで成功しない限り既存インストールを消さない）
+_fresh_install() {
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  if git clone --branch "${INSTALL_VERSION}" --depth 1 "${REPO_URL}" "${tmp_dir}"; then
+    if (cd "${tmp_dir}" && npm install --omit=dev --silent); then
+      rm -rf "${INSTALL_DIR}"
+      mv "${tmp_dir}" "${INSTALL_DIR}"
+      log_ok "フレームワーク ${INSTALL_VERSION} を再インストールしました"
+    else
+      rm -rf "${tmp_dir}"
+      log_err "npm install に失敗しました。既存のインストールを維持します。"
+      exit 1
+    fi
   else
-    log_warn "git pull --ff-only に失敗しました。手動で確認してください: ${INSTALL_DIR}"
+    rm -rf "${tmp_dir}"
+    log_err "再インストールに失敗しました。既存のインストールを維持します。"
+    exit 1
+  fi
+}
+
+# shallow clone の unshallow を試みたうえでタグ切り替えを行うヘルパー
+# 失敗時は 1 を返す
+_try_git_upgrade() {
+  if git -C "${INSTALL_DIR}" rev-parse --is-shallow-repository 2>/dev/null | grep -q true; then
+    git -C "${INSTALL_DIR}" fetch --unshallow --quiet || return 1
+  fi
+  git -C "${INSTALL_DIR}" fetch --tags --quiet \
+    && git -C "${INSTALL_DIR}" checkout "${INSTALL_VERSION}" --quiet
+}
+
+if [[ -d "${INSTALL_DIR}/.git" ]]; then
+  log_info "既存のインストールを ${INSTALL_VERSION} に更新します: ${INSTALL_DIR}"
+
+  if _try_git_upgrade; then
+    log_ok "フレームワークを ${INSTALL_VERSION} に更新しました"
+  else
+    log_warn "git によるバージョン切り替えに失敗しました。フレッシュインストールを試みます..."
+    _fresh_install
   fi
 else
-  log_info "Shogun をインストールします: ${INSTALL_DIR}"
+  log_info "Shogun ${INSTALL_VERSION} をインストールします: ${INSTALL_DIR}"
   mkdir -p "$(dirname "${INSTALL_DIR}")"
-  git clone "${REPO_URL}" "${INSTALL_DIR}"
-  log_ok "フレームワークをインストールしました"
+  git clone --branch "${INSTALL_VERSION}" --depth 1 "${REPO_URL}" "${INSTALL_DIR}"
+  log_ok "フレームワーク ${INSTALL_VERSION} をインストールしました"
 fi
 
 # ════════════════════════════════════════════════════════════

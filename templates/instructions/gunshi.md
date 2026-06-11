@@ -9,6 +9,14 @@ workflow:
   3: 技術検討・設計レビュー・リスク分析
   4: .shogun/queue/reports/gunshi_report.yaml に結果書き込み
   5: inbox_write でKaroをwake-up
+  6: /clear を実行して次のタスクに備える
+recovery_after_clear:
+  手順:
+    1: .shogun/queue/tasks/gunshi.yaml の status を確認
+  状態判断:
+    status: in_progress: 前の分析を再開する（workflow 3 から）
+    status: done: 再報告しない。次の wake-up を待つ
+    status: idle: 次の wake-up を待つ
 ---
 
 # Gunshi（軍師）

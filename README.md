@@ -59,10 +59,10 @@ Karo（家老）── PM、タスク分解・割り当て
 
 ```bash
 cd ~/projects/project-a
-shogun start   # tmux: shogun-project-a, multiagent-project-a
+shogun start   # tmux: taisho-project-a-<hash>, multiagent-project-a-<hash>
 
 cd ~/projects/project-b
-shogun start   # tmux: shogun-project-b, multiagent-project-b（同時稼働可）
+shogun start   # tmux: taisho-project-b-<hash>, multiagent-project-b-<hash>（同時稼働可）
 ```
 
 ## CLI リファレンス
@@ -74,6 +74,10 @@ shogun task "説明" --priority high
 shogun start                  # エージェント起動
 shogun start --clean          # キューをリセットして起動
 shogun start --count 5        # Ashigaru を5人で起動
+shogun start --setup          # tmux セッションのみ作成（エージェント未起動）
+shogun stop                   # エージェント停止
+shogun stop --legacy          # hash 導入前の legacy tmux セッションも停止
+shogun start --legacy-cleanup # 起動前に hash 導入前の legacy tmux セッションも停止
 shogun status                 # 現在の戦況確認
 shogun logs --agent karo      # 特定エージェントのログ
 shogun doctor                 # 環境診断

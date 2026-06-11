@@ -756,20 +756,15 @@ cmd_doctor() {
     local config_file="${SHOGUN_ROOT}/.shogun/config.yaml"
     if [[ -f "$config_file" ]]; then
       local project_name
-      project_name=$(node_yaml -e '
-const yaml = require("js-yaml");
-const d = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
-process.stdout.write(String(d.project_name || "shogun"));
-' -- "$config_file" 2>/dev/null || echo "shogun")
-      local safe_name="${project_name// /_}"
-      local s1="shogun-${safe_name}"
-      local s2="multiagent-${safe_name}"
-      if tmux has-session -t "$s1" 2>/dev/null; then
+      project_name="$(read_project_name "$config_file" 2>/dev/null || echo "shogun")"
+      local s1 s2
+      read -r s1 s2 <<< "$(project_session_names "$project_name" "$SHOGUN_ROOT")"
+      if tmux has-session -t "$(tmux_exact_target "$s1")" 2>/dev/null; then
         echo -e "  ${GREEN}●${RESET} ${s1} (稼働中)"
       else
         echo -e "  ${RED}○${RESET} ${s1} (停止)"
       fi
-      if tmux has-session -t "$s2" 2>/dev/null; then
+      if tmux has-session -t "$(tmux_exact_target "$s2")" 2>/dev/null; then
         echo -e "  ${GREEN}●${RESET} ${s2} (稼働中)"
       else
         echo -e "  ${RED}○${RESET} ${s2} (停止)"

@@ -435,8 +435,9 @@ process.stdout.write(v ? "true" : "false");
   # inbox_watcher のコマンド文字列が Claude の入力欄に入ってしまう
   local taisho_pane
   taisho_pane="${session_taisho}:0"
+  # SHOGUN_WATCH_REPORTS=1: Taisho は reports/ も監視し、Karo の報告書き込み漏れに備える
   tmux send-keys -t "$taisho_pane" \
-    "SHOGUN_ROOT=${SHOGUN_ROOT} bash ${SHOGUN_BIN_DIR}/scripts/inbox_watcher.sh taisho ${taisho_pane} &" \
+    "SHOGUN_ROOT=${SHOGUN_ROOT} SHOGUN_WATCH_REPORTS=1 bash ${SHOGUN_BIN_DIR}/scripts/inbox_watcher.sh taisho ${taisho_pane} &" \
     Enter 2>/dev/null || true
 
   if [[ "$setup_only" == "false" ]]; then
@@ -472,8 +473,11 @@ process.stdout.write(v ? "true" : "false");
 
     # inbox_watcher を claude より先に起動する
     # claude の TUI が入力を乗っ取る前にバックグラウンドへ回す
+    # Karo は reports/ も監視し、Ashigaru/Gunshi/Metsuke の報告書き込み漏れに備える
+    local watch_reports_env=""
+    [[ "$role" == "karo" ]] && watch_reports_env="SHOGUN_WATCH_REPORTS=1 "
     tmux send-keys -t "$pane_id" \
-      "SHOGUN_ROOT=${SHOGUN_ROOT} bash ${SHOGUN_BIN_DIR}/scripts/inbox_watcher.sh ${role} ${pane_id} &" \
+      "SHOGUN_ROOT=${SHOGUN_ROOT} ${watch_reports_env}bash ${SHOGUN_BIN_DIR}/scripts/inbox_watcher.sh ${role} ${pane_id} &" \
       Enter 2>/dev/null || true
 
     if [[ "$setup_only" == "false" ]]; then

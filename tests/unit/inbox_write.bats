@@ -117,3 +117,39 @@ process.stdout.write(String(d.messages.length));
   run bash "${SHOGUN_REPO}/scripts/inbox_write.sh" "karo" "subject" "body"
   [ "$status" -ne 0 ]
 }
+
+# --- SHOGUN_PROJECT_ID ---
+
+@test "inbox_write: with SHOGUN_PROJECT_ID writes to project-specific inbox" {
+  export SHOGUN_ROLE="taisho"
+  export SHOGUN_PROJECT_ID="proj1"
+  bash "${SHOGUN_REPO}/scripts/inbox_write.sh" "karo" "subject" "body"
+
+  local inbox="${TEST_PROJECT}/.shogun/queue/projects/proj1/inbox/karo.yaml"
+  [ -f "$inbox" ]
+  run node -e "
+const yaml = require('js-yaml');
+const d = yaml.load(require('fs').readFileSync('${inbox}', 'utf8'));
+process.stdout.write(String(d.messages.length));
+"
+  [ "$output" = "1" ]
+}
+
+@test "inbox_write: without SHOGUN_PROJECT_ID uses default inbox path" {
+  export SHOGUN_ROLE="taisho"
+  unset SHOGUN_PROJECT_ID
+  bash "${SHOGUN_REPO}/scripts/inbox_write.sh" "karo" "subject" "body"
+
+  local default_inbox="${TEST_PROJECT}/.shogun/queue/inbox/karo.yaml"
+  local project_inbox="${TEST_PROJECT}/.shogun/queue/projects"
+  [ -f "$default_inbox" ]
+  [ ! -d "$project_inbox" ]
+}
+
+@test "inbox_write: rejects invalid SHOGUN_PROJECT_ID with slash" {
+  export SHOGUN_ROLE="taisho"
+  export SHOGUN_PROJECT_ID="bad/id"
+  run bash "${SHOGUN_REPO}/scripts/inbox_write.sh" "karo" "subject" "body"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"project_id"* ]]
+}

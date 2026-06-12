@@ -82,3 +82,79 @@ setup() {
   # 2 回目で Enter を単独送信して確定する
   [ "${lines[1]}" = "send-keys -t mypane Enter" ]
 }
+
+# ────────────────────────────────────────────────────────────
+# get_escalation_phase: 経過時間からフェーズを判定する純粋関数
+# ────────────────────────────────────────────────────────────
+
+@test "get_escalation_phase: returns 0 when elapsed is below phase1 threshold" {
+  run get_escalation_phase 299 300 600 900
+  [ "$output" = "0" ]
+}
+
+@test "get_escalation_phase: returns 1 when elapsed reaches phase1 threshold" {
+  run get_escalation_phase 300 300 600 900
+  [ "$output" = "1" ]
+}
+
+@test "get_escalation_phase: returns 2 when elapsed reaches phase2 threshold" {
+  run get_escalation_phase 600 300 600 900
+  [ "$output" = "2" ]
+}
+
+@test "get_escalation_phase: returns 3 when elapsed reaches phase3 threshold" {
+  run get_escalation_phase 900 300 600 900
+  [ "$output" = "3" ]
+}
+
+@test "get_escalation_phase: returns 3 for elapsed beyond phase3" {
+  run get_escalation_phase 9999 300 600 900
+  [ "$output" = "3" ]
+}
+
+# ────────────────────────────────────────────────────────────
+# escalate_phase1/2/3: 各フェーズが正しい tmux コマンドを送出する
+# ────────────────────────────────────────────────────────────
+
+@test "escalate_phase1: sends nudge message and Enter" {
+  local log
+  log="$(mktemp)"
+  tmux() { printf '%s\n' "$*" >> "$log"; }
+  sleep() { :; }
+
+  escalate_phase1 "testpane"
+
+  run cat "$log"
+  rm -f "$log"
+  [ "${#lines[@]}" -eq 2 ]
+  [[ "${lines[0]}" == *"無応答"* ]]
+  [ "${lines[1]}" = "send-keys -t testpane Enter" ]
+}
+
+@test "escalate_phase2: sends Ctrl-C" {
+  local log
+  log="$(mktemp)"
+  tmux() { printf '%s\n' "$*" >> "$log"; }
+
+  escalate_phase2 "testpane"
+
+  run cat "$log"
+  rm -f "$log"
+  [ "${#lines[@]}" -eq 1 ]
+  [ "${lines[0]}" = "send-keys -t testpane C-c" ]
+}
+
+@test "escalate_phase3: sends /clear and Enter" {
+  local log
+  log="$(mktemp)"
+  tmux() { printf '%s\n' "$*" >> "$log"; }
+  sleep() { :; }
+
+  escalate_phase3 "testpane"
+
+  run cat "$log"
+  rm -f "$log"
+  [ "${#lines[@]}" -eq 2 ]
+  [ "${lines[0]}" = "send-keys -t testpane /clear" ]
+  [ "${lines[1]}" = "send-keys -t testpane Enter" ]
+}

@@ -111,3 +111,45 @@ STUB
   run grep "select-pane.*-T ashigaru1: 待機中" "$TMUX_LOG"
   [ "$status" -eq 0 ]
 }
+
+# ── Agent Self-Watch（ASW）環境変数の配線テスト ──
+
+@test "start: passes SHOGUN_ASW_ENABLED=false to taisho watcher by default" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+
+  run grep "inbox_watcher.sh taisho " "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"SHOGUN_ASW_ENABLED=false"* ]]
+}
+
+@test "start: passes SHOGUN_ASW_ENABLED=false to worker watchers by default" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+
+  run grep "inbox_watcher.sh karo " "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"SHOGUN_ASW_ENABLED=false"* ]]
+}
+
+@test "start: passes SHOGUN_ASW_ENABLED=true when escalation_policy.enabled is true" {
+  # config.yaml の escalation_policy.enabled を true に書き換えてから起動
+  node -e '
+const yaml = require("js-yaml");
+const fs = require("fs");
+const cfg = ".shogun/config.yaml";
+const d = yaml.load(fs.readFileSync(cfg, "utf8"));
+d.escalation_policy = d.escalation_policy || {};
+d.escalation_policy.enabled = true;
+fs.writeFileSync(cfg, yaml.dump(d, {allowUnicode: true}));
+'
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+
+  run grep "inbox_watcher.sh taisho " "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"SHOGUN_ASW_ENABLED=true"* ]]
+}

@@ -4,6 +4,7 @@ node_modules/
 !templates/.claude/**
 .shogun/
 docs/
+.mcp.json
 
 # --- Shogun ---
 # Shogun（.gitignoreに追記される内容）

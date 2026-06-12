@@ -138,8 +138,7 @@ process.stdout.write(d.mcpServers && d.mcpServers.memory ? 'ok' : 'ng');
   [ "$output" = "ok" ]
 }
 
-@test "init: second run does not overwrite existing .mcp.json" {
-  shogun init
+@test "init: does not overwrite pre-existing .mcp.json" {
   echo '{"custom":true}' > .mcp.json
   shogun init
   run node -e "

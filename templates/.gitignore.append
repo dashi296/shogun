@@ -4,4 +4,5 @@
 .shogun/queue/reports/*.yaml
 .shogun/queue/shogun_to_karo.yaml
 .shogun/memory/MEMORY.md
+.shogun/memory/memory.jsonl
 .shogun/logs/*.log

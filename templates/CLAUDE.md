@@ -24,6 +24,29 @@
 - タスク: `.shogun/queue/tasks/{自分の役職}.yaml` を読む
 - 報告: `.shogun/queue/reports/{自分の役職}_report.yaml` に書き込む
 
+## Memory MCP（クロスセッション永続記憶）
+
+`shogun init` で生成された `.mcp.json` により、Memory MCP サーバーが設定されます。
+Memory MCP はナレッジグラフ形式で記憶を保持し、`/clear` やセッション再開後も文脈を復元できます。
+記憶データは `.shogun/memory/memory.jsonl` に保存されます。
+
+### Memory MCP とファイルベース記憶（.shogun/memory/）の使い分け
+
+| | Memory MCP | ファイルベース記憶（MEMORY.md） |
+|---|---|---|
+| **形式** | ナレッジグラフ（エンティティ・関係） | Markdown（自由記述） |
+| **書き込み** | MCP ツール経由（自動） | 手動または agents が記述 |
+| **用途** | タスクパターン・エンティティ間の関係 | ユーザーの好み・重要決定の記録 |
+| **検索** | エンティティ名・関係で検索可能 | テキスト検索 |
+
+**基本方針**: 構造化された事実（人物・プロジェクト・タスクの関係）は Memory MCP へ、
+自由な長期メモ（好み・判断の記録）はファイルベース記憶（`MEMORY.md`）へ書く。
+
+### Memory MCP が未インストールの場合
+
+`npx @modelcontextprotocol/server-memory` が初回実行時に自動インストールされます。
+`npx` が使えない環境では `shogun doctor` で案内が表示されます。
+
 ## コンテキスト管理（/clear）
 
 YAML キューファイル（inbox / tasks / reports）が状態の正（authoritative source of truth）である。

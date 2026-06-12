@@ -219,6 +219,15 @@ cmd_init() {
     echo "reports: []"    > "${shogun_dir}/queue/reports/${agent}_report.yaml"
   done
 
+  # templates/.mcp.json → プロジェクトルートの .mcp.json にコピー（既存時はスキップ）
+  local mcp_json="${project_dir}/.mcp.json"
+  if [[ ! -f "$mcp_json" ]]; then
+    cp "${templates}/.mcp.json" "$mcp_json"
+    info ".mcp.json を生成しました（Memory MCP 設定）"
+  else
+    info ".mcp.json はすでに存在します（スキップ）"
+  fi
+
   # .gitignore に追記
   local gitignore="${project_dir}/.gitignore"
   local append_src="${templates}/.gitignore.append"

@@ -121,3 +121,30 @@ process.stdout.write(JSON.stringify(d.messages));
   project_name="$(basename "${TEST_PROJECT}")"
   grep -q "$project_name" ".shogun/dashboard.md"
 }
+
+# --- Memory MCP ---
+
+@test "init: creates .mcp.json in project root" {
+  shogun init
+  [ -f ".mcp.json" ]
+}
+
+@test "init: .mcp.json contains memory MCP server entry" {
+  shogun init
+  run node -e "
+const d = JSON.parse(require('fs').readFileSync('.mcp.json', 'utf8'));
+process.stdout.write(d.mcpServers && d.mcpServers.memory ? 'ok' : 'ng');
+"
+  [ "$output" = "ok" ]
+}
+
+@test "init: second run does not overwrite existing .mcp.json" {
+  shogun init
+  echo '{"custom":true}' > .mcp.json
+  shogun init
+  run node -e "
+const d = JSON.parse(require('fs').readFileSync('.mcp.json', 'utf8'));
+process.stdout.write(d.custom ? 'ok' : 'ng');
+"
+  [ "$output" = "ok" ]
+}

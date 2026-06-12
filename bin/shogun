@@ -138,6 +138,20 @@ tmux_exact_target() {
   printf "=%s" "$1"
 }
 
+# 残留した inbox_watcher / fswatch プロセスを停止する。
+# inbox_watcher は `&` でバックグラウンド起動されるため tmux kill-session では
+# SIGHUP が届かず孤児化し、同じ inbox を監視し続けて誤ペインへ wake-up を送る。
+# プロジェクト固有のセッション名（ハッシュ込み）と root でスコープを限定し、
+# 他プロジェクトの watcher を巻き込まないようにする。
+stop_project_watchers() {
+  local session_taisho="$1" session_multi="$2" root="$3"
+  # inbox_watcher.sh はペイン引数にセッション名（ハッシュ込み）を含む
+  pkill -f "inbox_watcher\.sh .*(${session_taisho}|${session_multi})" 2>/dev/null || true
+  # fswatch は監視対象パスに <root>/.shogun/queue を含む（dot を正規表現エスケープ）
+  local root_re="${root//./\\.}"
+  pkill -f "fswatch .*${root_re}/\.shogun/queue" 2>/dev/null || true
+}
+
 # ════════════════════════════════════════════════════════════
 # shogun init
 # ════════════════════════════════════════════════════════════
@@ -412,6 +426,9 @@ process.stdout.write(v ? "true" : "false");
   tmux kill-session -t "$(tmux_exact_target "$session_taisho")" 2>/dev/null && info "既存セッション ${session_taisho} を終了" || true
   tmux kill-session -t "$(tmux_exact_target "$session_multi")"  2>/dev/null && info "既存セッション ${session_multi} を終了"  || true
 
+  # 前回起動分の孤児 watcher / fswatch が残ると同じ inbox を二重監視するため停止する
+  stop_project_watchers "$session_taisho" "$session_multi" "$SHOGUN_ROOT"
+
   if [[ "$legacy_cleanup" == "true" ]]; then
     local legacy_session_taisho legacy_session_multi
     read -r legacy_session_taisho legacy_session_multi <<< "$(legacy_project_session_names "$project_name")" || exit 1
@@ -614,6 +631,9 @@ cmd_stop() {
       info "セッション ${session} は停止済みです。"
     fi
   done
+
+  # セッション終了では落ちない孤児 watcher / fswatch を明示的に停止する
+  stop_project_watchers "$session_taisho" "$session_multi" "$SHOGUN_ROOT"
 
   if [[ "$stopped" -eq 1 ]]; then
     success "Shogun を停止しました。"

@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$SHOGUN_BIN_DIR/scripts/inject_role.sh\""
+            "command": "[ -n \"$SHOGUN_BIN_DIR\" ] && [ -f \"$SHOGUN_BIN_DIR/scripts/inject_role.sh\" ] && bash \"$SHOGUN_BIN_DIR/scripts/inject_role.sh\" || true"
           }
         ]
       }

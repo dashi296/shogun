@@ -120,3 +120,39 @@ if (d.hookSpecificOutput.hookEventName !== "SessionStart") process.exit(1);
 if (!String(d.hookSpecificOutput.additionalContext).includes("gunshi")) process.exit(1);
 '
 }
+
+# --- フック登録コマンド（settings.json 内）の安全性 ---
+# shogun start 経由でない通常の claude セッションでは SHOGUN_BIN_DIR が未設定。
+# その場合でもフックがエラーにならず no-op することを保証する。
+
+# テンプレートの SessionStart コマンド文字列を取り出す
+_hook_command() {
+  node -e '
+const d = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+const h = d.hooks.SessionStart.flatMap(e => e.hooks || []).find(h => /inject_role/.test(h.command));
+process.stdout.write(h.command);
+' "${SHOGUN_REPO}/templates/.claude/settings.json"
+}
+
+@test "hook command: no-ops (exit 0, no output) when SHOGUN_BIN_DIR is unset" {
+  local cmd
+  cmd="$(_hook_command)"
+  run env -u SHOGUN_BIN_DIR -u SHOGUN_ROLE bash -c "$cmd"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "hook command: runs the script when SHOGUN_BIN_DIR is set" {
+  local cmd
+  cmd="$(_hook_command)"
+  # setup で作成した .shogun フィクスチャを CLAUDE_PROJECT_DIR として使う
+  run env SHOGUN_BIN_DIR="${SHOGUN_REPO}" SHOGUN_ROLE="taisho" \
+      SHOGUN_ROOT="${TEST_PROJECT}" CLAUDE_PROJECT_DIR="${TEST_PROJECT}" \
+      bash -c "$cmd"
+  [ "$status" -eq 0 ]
+  echo "$output" | node -e '
+const d = JSON.parse(require("fs").readFileSync(0, "utf8"));
+if (d.hookSpecificOutput.hookEventName !== "SessionStart") process.exit(1);
+if (!String(d.hookSpecificOutput.additionalContext).includes("TAISHO_ROLE_MARKER")) process.exit(1);
+'
+}

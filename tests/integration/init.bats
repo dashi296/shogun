@@ -184,3 +184,20 @@ process.stdout.write(JSON.stringify(c.haiku === 3 && c.sonnet === 5 && c.opus ==
 "
   [ "$output" = "true" ]
 }
+
+# --- Skill System ---
+
+@test "init: creates .claude/commands/ directory" {
+  shogun init
+  [ -d ".claude/commands" ]
+}
+
+@test "init: copies shogun-agent-status skill" {
+  shogun init
+  [ -f ".claude/commands/shogun-agent-status.md" ]
+}
+
+@test "init: copies shogun-propose-skill skill" {
+  shogun init
+  [ -f ".claude/commands/shogun-propose-skill.md" ]
+}

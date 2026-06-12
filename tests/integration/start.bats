@@ -68,3 +68,46 @@ STUB
   [ "$status" -eq 0 ]
   [[ "$output" != *"SHOGUN_REPORT_SOURCES"* ]]
 }
+
+@test "start: enables pane-border-status on both sessions" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+
+  run grep "pane-border-status top" "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+  # taisho と multiagent の2セッション分が設定される
+  [ "$(grep -c "pane-border-status top" "$TMUX_LOG")" -ge 2 ]
+}
+
+@test "start: sets pane-border-format on both sessions" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+
+  run grep "pane-border-format" "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"pane_title"* ]]
+}
+
+@test "start: sets initial pane title for taisho" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+
+  run grep "select-pane" "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"-T taisho: 待機中"* ]]
+}
+
+@test "start: sets initial pane title for each agent" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+
+  run grep "select-pane.*-T karo: 待機中" "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+
+  run grep "select-pane.*-T ashigaru1: 待機中" "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+}

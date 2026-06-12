@@ -159,6 +159,33 @@ cmd_init() {
   local project_dir
   project_dir="$(pwd)"
   local shogun_dir="${project_dir}/.shogun"
+  local project_id=""
+
+  # 引数パース
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --project-id)
+        project_id="${2:?--project-id には値が必要です}"
+        shift 2
+        ;;
+      --project-id=*)
+        project_id="${1#--project-id=}"
+        shift
+        ;;
+      -*)
+        error "不明なオプション: $1"
+        exit 1
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+
+  # project_id のバリデーション
+  if [[ -n "$project_id" ]]; then
+    [[ "$project_id" =~ ^[A-Za-z0-9_-]+$ ]] || { error "不正な project_id: ${project_id}（英数字・_・-のみ使用可）"; exit 1; }
+  fi
 
   if [[ -d "$shogun_dir" ]]; then
     info ".shogun/ はすでに存在します（初期化済み）。"
@@ -174,6 +201,7 @@ cmd_init() {
     "${shogun_dir}/queue/tasks" \
     "${shogun_dir}/queue/reports" \
     "${shogun_dir}/queue/inbox" \
+    "${shogun_dir}/config" \
     "${shogun_dir}/instructions" \
     "${shogun_dir}/memory" \
     "${shogun_dir}/logs"
@@ -226,6 +254,47 @@ cmd_init() {
     info ".mcp.json を生成しました（Memory MCP 設定）"
   else
     info ".mcp.json はすでに存在します（スキップ）"
+  fi
+
+  # --project-id が指定された場合はプロジェクト管理ファイルを生成
+  if [[ -n "$project_id" ]]; then
+    info "プロジェクト管理ファイルを生成します: ${project_id}"
+    # .shogun/config/projects.yaml（git 管理・公開情報）
+    cp "${templates}/config/projects.yaml" "${shogun_dir}/config/projects.yaml"
+    node_yaml -e '
+const fs = require("fs");
+const yaml = require("js-yaml");
+const [file, id, name] = process.argv.slice(1);
+const data = yaml.load(fs.readFileSync(file, "utf8")) || {};
+data.default_project = id;
+data.projects = [{id: id, name: name, path: "."}];
+fs.writeFileSync(file, yaml.dump(data, {allowUnicode: true}));
+' -- "${shogun_dir}/config/projects.yaml" "$project_id" "$project_name"
+
+    # .shogun/projects/{id}.yaml（gitignore・機密情報）
+    mkdir -p "${shogun_dir}/projects"
+    node_yaml -e '
+const fs = require("fs");
+const yaml = require("js-yaml");
+const [file, id] = process.argv.slice(1);
+const data = {
+  version: "1.0",
+  project_id: id,
+  agents: {taisho_model: "opus", worker_model: "sonnet", ashigaru_count: 3},
+  secrets: {}
+};
+fs.writeFileSync(file, yaml.dump(data, {allowUnicode: true}));
+' -- "${shogun_dir}/projects/${project_id}.yaml" "$project_id"
+  fi
+
+  # templates/.claude/commands/ → .claude/commands/（スキルファイル）
+  local claude_commands_src="${templates}/.claude/commands"
+  if [[ -d "$claude_commands_src" ]]; then
+    mkdir -p "${project_dir}/.claude/commands"
+    if compgen -G "${claude_commands_src}/"*.md > /dev/null 2>&1; then
+      cp "${claude_commands_src}/"*.md "${project_dir}/.claude/commands/"
+    fi
+    info ".claude/commands/ にスキルをコピーしました。"
   fi
 
   # .gitignore に追記
@@ -337,7 +406,7 @@ fs.writeFileSync(queueFile, yaml.dump(data, {allowUnicode: true}));
 }
 
 # ════════════════════════════════════════════════════════════
-# shogun start [--clean] [--setup] [--count N] [--legacy-cleanup]
+# shogun start [--clean] [--setup] [--count N] [--legacy-cleanup] [--project ID]
 # ════════════════════════════════════════════════════════════
 cmd_start() {
   require_init
@@ -346,6 +415,7 @@ cmd_start() {
   local setup_only=false
   local count_override=""
   local legacy_cleanup=false
+  local project_id_override=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -360,12 +430,26 @@ cmd_start() {
         count_override="${1#--count=}"
         shift
         ;;
+      --project)
+        project_id_override="${2:?--project には値が必要です}"
+        shift 2
+        ;;
+      --project=*)
+        project_id_override="${1#--project=}"
+        shift
+        ;;
       *)
         error "不明なオプション: $1"
         exit 1
         ;;
     esac
   done
+
+  # --project が指定された場合はバリデーションして SHOGUN_PROJECT_ID に設定
+  if [[ -n "$project_id_override" ]]; then
+    [[ "$project_id_override" =~ ^[A-Za-z0-9_-]+$ ]] || { error "不正な project_id: ${project_id_override}"; exit 1; }
+    export SHOGUN_PROJECT_ID="$project_id_override"
+  fi
 
   local config_file="${SHOGUN_ROOT}/.shogun/config.yaml"
 
@@ -482,6 +566,12 @@ process.stdout.write(String(p.phase3_clear_sec || 900));
     claude_opts="--dangerously-skip-permissions"
   fi
 
+  # SHOGUN_PROJECT_ID が設定されている場合は環境変数として伝播させる
+  local project_id_env=""
+  if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
+    project_id_env="SHOGUN_PROJECT_ID=${SHOGUN_PROJECT_ID} "
+  fi
+
   # ─── taisho-<safe_name>-<hash> セッション（Taisho 用、1ペイン）
   tmux new-session -d -s "$session_taisho" -x 220 -y 50
   tmux set-option -t "$session_taisho" status-style "bg=magenta,fg=white"
@@ -497,13 +587,13 @@ process.stdout.write(String(p.phase3_clear_sec || 900));
   # Karo の報告書き込み漏れに備える。下位の個別報告では起こさない（早すぎる集約の防止）。
   local asw_env="SHOGUN_ASW_ENABLED=${asw_enabled} SHOGUN_ASW_PHASE1_SEC=${asw_phase1} SHOGUN_ASW_PHASE2_SEC=${asw_phase2} SHOGUN_ASW_PHASE3_SEC=${asw_phase3}"
   tmux send-keys -t "$taisho_pane" \
-    "SHOGUN_ROOT=${SHOGUN_ROOT} SHOGUN_REPORT_SOURCES=karo ${asw_env} bash ${SHOGUN_BIN_DIR}/scripts/inbox_watcher.sh taisho ${taisho_pane} &" \
+    "SHOGUN_ROOT=${SHOGUN_ROOT} ${project_id_env}SHOGUN_REPORT_SOURCES=karo ${asw_env} bash ${SHOGUN_BIN_DIR}/scripts/inbox_watcher.sh taisho ${taisho_pane} &" \
     Enter 2>/dev/null || true
   tmux select-pane -t "$taisho_pane" -T "taisho: 待機中" 2>/dev/null || true
 
   if [[ "$setup_only" == "false" ]]; then
     local taisho_cmd
-    taisho_cmd="cd ${SHOGUN_ROOT} && SHOGUN_ROLE=taisho SHOGUN_ROOT=${SHOGUN_ROOT} SHOGUN_BIN_DIR=${SHOGUN_BIN_DIR} claude --model ${taisho_model} ${claude_opts} --add-dir ${SHOGUN_ROOT}/.shogun"
+    taisho_cmd="cd ${SHOGUN_ROOT} && SHOGUN_ROLE=taisho SHOGUN_ROOT=${SHOGUN_ROOT} SHOGUN_BIN_DIR=${SHOGUN_BIN_DIR} ${project_id_env}claude --model ${taisho_model} ${claude_opts} --add-dir ${SHOGUN_ROOT}/.shogun"
     tmux send-keys -t "${session_taisho}:0" "$taisho_cmd" Enter
   fi
 
@@ -548,7 +638,7 @@ process.stdout.write(String(p.phase3_clear_sec || 900));
       report_sources_env="SHOGUN_REPORT_SOURCES='${karo_sources}' "
     fi
     tmux send-keys -t "$pane_id" \
-      "SHOGUN_ROOT=${SHOGUN_ROOT} ${report_sources_env}${asw_env} bash ${SHOGUN_BIN_DIR}/scripts/inbox_watcher.sh ${role} ${pane_id} &" \
+      "SHOGUN_ROOT=${SHOGUN_ROOT} ${project_id_env}${report_sources_env}${asw_env} bash ${SHOGUN_BIN_DIR}/scripts/inbox_watcher.sh ${role} ${pane_id} &" \
       Enter 2>/dev/null || true
     tmux select-pane -t "$pane_id" -T "${role}: 待機中" 2>/dev/null || true
 
@@ -556,7 +646,7 @@ process.stdout.write(String(p.phase3_clear_sec || 900));
       # ペインのモデルを決定
       local model="$worker_model"
       local role_cmd
-      role_cmd="cd ${SHOGUN_ROOT} && SHOGUN_ROLE=${role} SHOGUN_ROOT=${SHOGUN_ROOT} SHOGUN_BIN_DIR=${SHOGUN_BIN_DIR} claude --model ${model} ${claude_opts} --add-dir ${SHOGUN_ROOT}/.shogun"
+      role_cmd="cd ${SHOGUN_ROOT} && SHOGUN_ROLE=${role} SHOGUN_ROOT=${SHOGUN_ROOT} SHOGUN_BIN_DIR=${SHOGUN_BIN_DIR} ${project_id_env}claude --model ${model} ${claude_opts} --add-dir ${SHOGUN_ROOT}/.shogun"
       tmux send-keys -t "$pane_id" "$role_cmd" Enter
     fi
   done

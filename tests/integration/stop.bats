@@ -5,6 +5,25 @@ load '../test_helper'
 
 declare -a EXTRA_TMUX_SESSIONS=()
 declare -a EXTRA_DIRS=()
+declare -a EXTRA_PIDS=()
+
+# 残留 watcher を模した単一プロセスを起動する。
+# exec -a で argv[0] にセッション名込みの文字列を設定し、pkill -f の対象を再現する。
+# exec により bash 自身が sleep に置換されるため子 sleep を orphan させない。
+spawn_fake_watcher() {
+  local argv0="$1"
+  bash -c 'exec -a "$0" sleep 600' "$argv0" &
+  local pid=$!
+  EXTRA_PIDS+=("$pid")
+  # プロセスがプロセステーブルに現れるまで待つ
+  local i=0
+  while ! pgrep -f "$argv0" >/dev/null 2>&1; do
+    sleep 0.05
+    i=$((i + 1))
+    [ "$i" -gt 40 ] && break
+  done
+  printf "%s" "$pid"
+}
 
 setup() {
   init_test_project
@@ -67,6 +86,10 @@ teardown() {
   for extra_dir in "${EXTRA_DIRS[@]}"; do
     rm -rf "$extra_dir"
   done
+  local extra_pid
+  for extra_pid in "${EXTRA_PIDS[@]}"; do
+    kill "$extra_pid" 2>/dev/null || true
+  done
   teardown_test_project
 }
 
@@ -87,6 +110,58 @@ teardown() {
   [ "$status" -ne 0 ]
   run tmux has-session -t "=${session_multi}"
   [ "$status" -ne 0 ]
+}
+
+@test "stop: kills leftover inbox_watcher processes for the project" {
+  local project_name session_taisho session_multi
+  project_name="$(basename "${TEST_PROJECT}")"
+  read -r session_taisho session_multi <<< "$(test_session_names "$project_name" "$TEST_PROJECT")"
+
+  tmux new-session -d -s "$session_taisho"
+  tmux new-session -d -s "$session_multi"
+
+  # このプロジェクトの残留 watcher を模したプロセスを起動
+  spawn_fake_watcher "bash inbox_watcher.sh ashigaru1 ${session_multi}:0.3" >/dev/null
+  run pgrep -f "inbox_watcher.sh.*${session_multi}"
+  [ "$status" -eq 0 ]
+
+  run shogun stop
+  [ "$status" -eq 0 ]
+
+  # stop 後は watcher が停止している
+  local j=0
+  while pgrep -f "inbox_watcher.sh.*${session_multi}" >/dev/null 2>&1; do
+    sleep 0.05
+    j=$((j + 1))
+    [ "$j" -gt 40 ] && break
+  done
+  run pgrep -f "inbox_watcher.sh.*${session_multi}"
+  [ "$status" -ne 0 ]
+}
+
+@test "stop: does not kill watcher processes of another project" {
+  local project_name session_taisho session_multi
+  project_name="$(basename "${TEST_PROJECT}")"
+  read -r session_taisho session_multi <<< "$(test_session_names "$project_name" "$TEST_PROJECT")"
+
+  tmux new-session -d -s "$session_taisho"
+  tmux new-session -d -s "$session_multi"
+
+  # 別プロジェクト（別 root → 別ハッシュ）の watcher。停止対象外であること
+  local other_root other_taisho other_multi
+  other_root="$(mktemp -d)"
+  EXTRA_DIRS+=("$other_root")
+  read -r other_taisho other_multi <<< "$(test_session_names "$project_name" "$other_root")"
+
+  spawn_fake_watcher "bash inbox_watcher.sh ashigaru1 ${other_multi}:0.3" >/dev/null
+
+  run shogun stop
+  [ "$status" -eq 0 ]
+  sleep 0.3
+
+  # 別プロジェクトの watcher は生存している
+  run pgrep -f "inbox_watcher.sh.*${other_multi}"
+  [ "$status" -eq 0 ]
 }
 
 @test "stop: succeeds even when sessions are already stopped" {

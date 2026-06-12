@@ -67,7 +67,7 @@ process.stdout.write(String(msgs.length) + "\n" + subject);
   if [[ "$unread" -gt 0 ]]; then
     tmux select-pane -t "$PANE" -T "${AGENT_ID}: ${subject:-メッセージあり}" 2>/dev/null || true
     notify_pane "$PANE" \
-      ".shogun/queue/inbox/${AGENT_ID}.yaml に ${unread} 件の未読メッセージがあります。確認してください。"
+      "${INBOX#${ROOT}/} に ${unread} 件の未読メッセージがあります。確認してください。"
   fi
 }
 
@@ -202,14 +202,15 @@ main() {
   # パストラバーサル防止: エージェントIDは英数字・アンダースコア・ハイフンのみ許可
   [[ "$AGENT_ID" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "ERROR: 不正な agent_id: ${AGENT_ID}"; exit 1; }
 
-  # SHOGUN_PROJECT_ID が設定されている場合はプロジェクト専用の inbox を使用
+  # SHOGUN_PROJECT_ID が設定されている場合はプロジェクト専用のパスを使用
   if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
     [[ "$SHOGUN_PROJECT_ID" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "ERROR: 不正な project_id: ${SHOGUN_PROJECT_ID}"; exit 1; }
     INBOX="${ROOT}/.shogun/queue/projects/${SHOGUN_PROJECT_ID}/inbox/${AGENT_ID}.yaml"
+    REPORTS_DIR="${ROOT}/.shogun/queue/projects/${SHOGUN_PROJECT_ID}/reports"
   else
     INBOX="${ROOT}/.shogun/queue/inbox/${AGENT_ID}.yaml"
+    REPORTS_DIR="${ROOT}/.shogun/queue/reports"
   fi
-  REPORTS_DIR="${ROOT}/.shogun/queue/reports"
   # 消費する報告元の allowlist（空白区切り）。bin/shogun が役職ごとに設定する。
   #   karo  -> "gunshi metsuke ashigaru1 ..." / taisho -> "karo"
   REPORT_SOURCES="${SHOGUN_REPORT_SOURCES:-}"

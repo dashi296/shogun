@@ -27,7 +27,7 @@ if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
 else
   INBOX="${ROOT}/.shogun/queue/inbox/${RECIPIENT}.yaml"
 fi
-LOCK_FILE="/tmp/shogun_inbox_${RECIPIENT}.lock"
+LOCK_FILE="/tmp/shogun_inbox_${SHOGUN_PROJECT_ID:+${SHOGUN_PROJECT_ID}_}${RECIPIENT}.lock"
 MSG_ID="msg_$(date +%Y%m%d%H%M%S)_$$"
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 SENDER="${SHOGUN_ROLE:-unknown}"

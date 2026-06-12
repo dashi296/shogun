@@ -297,6 +297,36 @@ fs.writeFileSync(file, yaml.dump(data, {allowUnicode: true}));
     info ".claude/commands/ にスキルをコピーしました。"
   fi
 
+  # templates/.claude/settings.json → .claude/settings.json（SessionStart 役職注入フック）
+  # 既存のユーザー設定は壊さずマージし、再 init でも重複登録しない。
+  local claude_settings_src="${templates}/.claude/settings.json"
+  if [[ -f "$claude_settings_src" ]]; then
+    mkdir -p "${project_dir}/.claude"
+    local claude_settings_dest="${project_dir}/.claude/settings.json"
+    local merge_status=0
+    node -e '
+const fs = require("fs");
+const [dest, tmpl] = process.argv.slice(1);
+const t = JSON.parse(fs.readFileSync(tmpl, "utf8"));
+let d = {};
+if (fs.existsSync(dest)) {
+  try { d = JSON.parse(fs.readFileSync(dest, "utf8")) || {}; }
+  catch (e) { process.exit(2); }   // 不正な JSON は触らない
+}
+d.hooks = d.hooks || {};
+d.hooks.SessionStart = d.hooks.SessionStart || [];
+const already = d.hooks.SessionStart.some(e =>
+  (e.hooks || []).some(h => /inject_role\.sh/.test(h.command || "")));
+if (!already) d.hooks.SessionStart.push(t.hooks.SessionStart[0]);
+fs.writeFileSync(dest, JSON.stringify(d, null, 2) + "\n");
+' -- "$claude_settings_dest" "$claude_settings_src" || merge_status=$?
+    if [[ "$merge_status" -eq 2 ]]; then
+      info ".claude/settings.json が不正な JSON のため、役職フックの自動追加をスキップしました。"
+    else
+      info ".claude/settings.json に役職注入フック（SessionStart）を設定しました。"
+    fi
+  fi
+
   # .gitignore に追記
   local gitignore="${project_dir}/.gitignore"
   local append_src="${templates}/.gitignore.append"

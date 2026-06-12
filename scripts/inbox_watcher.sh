@@ -202,7 +202,13 @@ main() {
   # パストラバーサル防止: エージェントIDは英数字・アンダースコア・ハイフンのみ許可
   [[ "$AGENT_ID" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "ERROR: 不正な agent_id: ${AGENT_ID}"; exit 1; }
 
-  INBOX="${ROOT}/.shogun/queue/inbox/${AGENT_ID}.yaml"
+  # SHOGUN_PROJECT_ID が設定されている場合はプロジェクト専用の inbox を使用
+  if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
+    [[ "$SHOGUN_PROJECT_ID" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "ERROR: 不正な project_id: ${SHOGUN_PROJECT_ID}"; exit 1; }
+    INBOX="${ROOT}/.shogun/queue/projects/${SHOGUN_PROJECT_ID}/inbox/${AGENT_ID}.yaml"
+  else
+    INBOX="${ROOT}/.shogun/queue/inbox/${AGENT_ID}.yaml"
+  fi
   REPORTS_DIR="${ROOT}/.shogun/queue/reports"
   # 消費する報告元の allowlist（空白区切り）。bin/shogun が役職ごとに設定する。
   #   karo  -> "gunshi metsuke ashigaru1 ..." / taisho -> "karo"

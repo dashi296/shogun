@@ -20,7 +20,13 @@ ROOT="${SHOGUN_ROOT:?SHOGUN_ROOT が未設定です}"
 # パストラバーサル防止: 役職名は英数字・アンダースコア・ハイフンのみ許可
 [[ "$RECIPIENT" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "ERROR: 不正な recipient: ${RECIPIENT}"; exit 1; }
 
-INBOX="${ROOT}/.shogun/queue/inbox/${RECIPIENT}.yaml"
+# SHOGUN_PROJECT_ID が設定されている場合はプロジェクト専用の inbox を使用
+if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
+  [[ "$SHOGUN_PROJECT_ID" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "ERROR: 不正な project_id: ${SHOGUN_PROJECT_ID}"; exit 1; }
+  INBOX="${ROOT}/.shogun/queue/projects/${SHOGUN_PROJECT_ID}/inbox/${RECIPIENT}.yaml"
+else
+  INBOX="${ROOT}/.shogun/queue/inbox/${RECIPIENT}.yaml"
+fi
 LOCK_FILE="/tmp/shogun_inbox_${RECIPIENT}.lock"
 MSG_ID="msg_$(date +%Y%m%d%H%M%S)_$$"
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")

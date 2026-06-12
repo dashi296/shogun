@@ -201,3 +201,52 @@ process.stdout.write(JSON.stringify(c.haiku === 3 && c.sonnet === 5 && c.opus ==
   shogun init
   [ -f ".claude/commands/shogun-propose-skill.md" ]
 }
+
+# --- project management (--project-id) ---
+
+@test "init --project-id: creates .shogun/config/projects.yaml" {
+  shogun init --project-id myproject
+  [ -f ".shogun/config/projects.yaml" ]
+}
+
+@test "init --project-id: sets correct project id in projects.yaml" {
+  shogun init --project-id myproject
+  run node -e "
+const yaml = require('js-yaml');
+const d = yaml.load(require('fs').readFileSync('.shogun/config/projects.yaml', 'utf8'));
+process.stdout.write(d.default_project);
+"
+  [ "$output" = "myproject" ]
+}
+
+@test "init --project-id: creates .shogun/projects/{id}.yaml" {
+  shogun init --project-id myproject
+  [ -f ".shogun/projects/myproject.yaml" ]
+}
+
+@test "init --project-id: project file has correct project_id" {
+  shogun init --project-id myproject
+  run node -e "
+const yaml = require('js-yaml');
+const d = yaml.load(require('fs').readFileSync('.shogun/projects/myproject.yaml', 'utf8'));
+process.stdout.write(d.project_id);
+"
+  [ "$output" = "myproject" ]
+}
+
+@test "init --project-id: rejects invalid project id with slash" {
+  run shogun init --project-id "bad/id"
+  [ "$status" -ne 0 ]
+}
+
+@test "init: without --project-id does not create projects files" {
+  shogun init
+  [ ! -f ".shogun/config/projects.yaml" ]
+  [ ! -d ".shogun/projects" ]
+}
+
+@test "init: gitignore includes project queue pattern when --project-id given" {
+  echo "node_modules/" > .gitignore
+  shogun init --project-id myproject
+  grep -q "projects/\*\*/\*\.yaml" .gitignore || grep -q "projects" .gitignore
+}

@@ -1,0 +1,6 @@
+version: "1.0"
+default_project: main
+projects:
+  - id: main
+    name: "Main Project"
+    path: "."

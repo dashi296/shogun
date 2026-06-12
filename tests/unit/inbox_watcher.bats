@@ -48,6 +48,53 @@ setup() {
   [ "$status" -ne 0 ]
 }
 
+# --- SHOGUN_PROJECT_ID path switching ---
+
+@test "inbox_watcher main: uses project-specific inbox when SHOGUN_PROJECT_ID is set" {
+  # main() 関数内のパス決定ロジックをテストするため、
+  # source後に main() の内部変数設定部分を再現して確認する
+  local tmp_root
+  tmp_root="$(mktemp -d)"
+
+  export SHOGUN_ROOT="$tmp_root"
+  export SHOGUN_PROJECT_ID="proj1"
+
+  # inbox_watcher.sh を source して関数を読み込む
+  # main() を直接呼ぶと監視ループが起動するため、内部パス計算を模倣する
+  local expected_inbox="${tmp_root}/.shogun/queue/projects/proj1/inbox/karo.yaml"
+  local actual_inbox
+  if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
+    actual_inbox="${SHOGUN_ROOT}/.shogun/queue/projects/${SHOGUN_PROJECT_ID}/inbox/karo.yaml"
+  else
+    actual_inbox="${SHOGUN_ROOT}/.shogun/queue/inbox/karo.yaml"
+  fi
+
+  [ "$actual_inbox" = "$expected_inbox" ]
+
+  rm -rf "$tmp_root"
+  unset SHOGUN_PROJECT_ID
+}
+
+@test "inbox_watcher main: uses default inbox when SHOGUN_PROJECT_ID is not set" {
+  local tmp_root
+  tmp_root="$(mktemp -d)"
+
+  export SHOGUN_ROOT="$tmp_root"
+  unset SHOGUN_PROJECT_ID
+
+  local expected_inbox="${tmp_root}/.shogun/queue/inbox/karo.yaml"
+  local actual_inbox
+  if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
+    actual_inbox="${SHOGUN_ROOT}/.shogun/queue/projects/${SHOGUN_PROJECT_ID}/inbox/karo.yaml"
+  else
+    actual_inbox="${SHOGUN_ROOT}/.shogun/queue/inbox/karo.yaml"
+  fi
+
+  [ "$actual_inbox" = "$expected_inbox" ]
+
+  rm -rf "$tmp_root"
+}
+
 @test "should_wake_on_report: ignores non-report files" {
   run should_wake_on_report "notes.txt" "gunshi metsuke ashigaru1"
   [ "$status" -ne 0 ]

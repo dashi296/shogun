@@ -172,3 +172,15 @@ process.stdout.write(JSON.stringify(t.ashigaru.bloom_max === 3 && t.gunshi.bloom
 "
   [ "$output" = "true" ]
 }
+
+@test "init: capability_tiers has correct model_bloom_ceiling values" {
+  shogun init
+
+  run node -e "
+const yaml = require('js-yaml');
+const d = yaml.load(require('fs').readFileSync('.shogun/config.yaml', 'utf8'));
+const c = d.capability_tiers.model_bloom_ceiling;
+process.stdout.write(JSON.stringify(c.haiku === 3 && c.sonnet === 5 && c.opus === 6));
+"
+  [ "$output" = "true" ]
+}

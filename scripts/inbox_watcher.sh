@@ -84,11 +84,8 @@ wake_up_reports() {
 # フェーズ1: 催促メッセージ（nudge）
 escalate_phase1() {
   local pane="$1"
-  tmux send-keys -t "$pane" \
-    "（システム自動通知）長時間無応答が検知されました。作業を再開してください。" \
-    2>/dev/null || true
-  sleep "${SHOGUN_WAKE_ENTER_DELAY:-0.3}"
-  tmux send-keys -t "$pane" Enter 2>/dev/null || true
+  notify_pane "$pane" \
+    "（システム自動通知）長時間無応答が検知されました。作業を再開してください。"
 }
 
 # フェーズ2: 中断（Ctrl-C）
@@ -100,9 +97,7 @@ escalate_phase2() {
 # フェーズ3: リセット（/clear）
 escalate_phase3() {
   local pane="$1"
-  tmux send-keys -t "$pane" "/clear" 2>/dev/null || true
-  sleep "${SHOGUN_WAKE_ENTER_DELAY:-0.3}"
-  tmux send-keys -t "$pane" Enter 2>/dev/null || true
+  notify_pane "$pane" "/clear"
 }
 
 # エスカレーションフェーズを判定する純粋関数（テスト対象）
@@ -129,6 +124,7 @@ watch_escalation() {
   local phase3_sec="${SHOGUN_ASW_PHASE3_SEC:-900}"
   local check_interval=30
   local last_phase=0
+  local last_esc_time=0
 
   while true; do
     sleep "$check_interval"
@@ -139,27 +135,35 @@ watch_escalation() {
     if [[ "$last_activity" -eq 0 ]]; then continue; fi
 
     local now elapsed
-    now="$(node -e 'process.stdout.write(String(Math.floor(Date.now()/1000)))')"
+    now="$(date +%s)"
     elapsed=$(( now - last_activity ))
 
     local target_phase
     target_phase="$(get_escalation_phase "$elapsed" "$phase1_sec" "$phase2_sec" "$phase3_sec")"
 
     # アクティビティ再開でフェーズをリセット
+    # エスカレーション操作自体も pane_activity を更新するため、
+    # 最後のエスカレーション後 check_interval*2 より新しい活動のみ本物の復帰とみなす
     if [[ "$target_phase" -eq 0 ]]; then
-      last_phase=0
+      if [[ "$last_phase" -gt 0 ]] && (( last_activity > last_esc_time + check_interval * 2 )); then
+        last_phase=0
+        last_esc_time=0
+      fi
       continue
     fi
 
-    # 未実行フェーズのみ実行（同フェーズを繰り返し送らない）
-    if [[ "$target_phase" -gt "$last_phase" ]]; then
-      case "$target_phase" in
-        1) escalate_phase1 "$pane" ;;
-        2) escalate_phase2 "$pane" ;;
-        3) escalate_phase3 "$pane" ;;
-      esac
-      last_phase="$target_phase"
+    # 常に last_phase+1 から順に昇格させ、初回でも高フェーズへ飛び越すのを防ぐ
+    local next_phase=$(( last_phase + 1 ))
+    if [[ "$next_phase" -gt "$target_phase" ]]; then
+      continue
     fi
+    case "$next_phase" in
+      1) escalate_phase1 "$pane" ;;
+      2) escalate_phase2 "$pane" ;;
+      3) escalate_phase3 "$pane" ;;
+    esac
+    last_phase="$next_phase"
+    last_esc_time="$now"
   done
 }
 

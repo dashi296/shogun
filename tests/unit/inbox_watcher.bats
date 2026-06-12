@@ -54,3 +54,31 @@ setup() {
   run should_wake_on_report ".ashigaru1_report.yaml.swp" "gunshi metsuke ashigaru1"
   [ "$status" -ne 0 ]
 }
+
+# ────────────────────────────────────────────────────────────
+# notify_pane: 本文と Enter を別々の send-keys で送る
+#
+# Claude Code の TUI が起動直後・ビジー時、本文と Enter を同一 send-keys で
+# 送るとブラケットペースト扱いで末尾 Enter が改行に吸収され、送信が確定しない。
+# 本文送信と Enter を分離することで送信の取りこぼしを防ぐ。
+# ────────────────────────────────────────────────────────────
+
+@test "notify_pane: sends body and Enter as separate send-keys" {
+  local log
+  log="$(mktemp)"
+  # tmux / sleep をスタブして送出引数を記録する
+  tmux() { printf '%s\n' "$*" >> "$log"; }
+  sleep() { :; }
+
+  notify_pane "mypane" "本文メッセージ"
+
+  run cat "$log"
+  rm -f "$log"
+  # send-keys が 2 回呼ばれる（本文 → Enter）
+  [ "${#lines[@]}" -eq 2 ]
+  # 1 回目は本文のみ。末尾に Enter を含まない（同梱しない）
+  [ "${lines[0]}" = "send-keys -t mypane 本文メッセージ" ]
+  [[ "${lines[0]}" != *Enter* ]]
+  # 2 回目で Enter を単独送信して確定する
+  [ "${lines[1]}" = "send-keys -t mypane Enter" ]
+}

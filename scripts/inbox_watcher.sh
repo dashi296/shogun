@@ -34,6 +34,17 @@ should_wake_on_report() {
 # wake-up 送出
 # ────────────────────────────────────────────────────────────
 
+# ペインへ通知を送る。本文と Enter を別々の send-keys で送出する。
+# Claude Code の TUI が起動直後・ビジー時、本文と Enter を同一 send-keys で送ると
+# ブラケットペースト扱いで末尾 Enter が改行に吸収され送信が確定しないことがある。
+# 本文を送ってから Enter を単独送信し、間に短いウェイトを挟むことで取りこぼしを防ぐ。
+notify_pane() {
+  local pane="$1" message="$2"
+  tmux send-keys -t "$pane" "$message" 2>/dev/null || true
+  sleep "${SHOGUN_WAKE_ENTER_DELAY:-0.3}"
+  tmux send-keys -t "$pane" Enter 2>/dev/null || true
+}
+
 # inbox の未読件数を確認し、未読があればペインへ通知する
 wake_up_inbox() {
   local unread
@@ -47,17 +58,15 @@ process.stdout.write(String(msgs.length));
 ' -- "$INBOX" 2>/dev/null || echo "0")
 
   if [[ "$unread" -gt 0 ]]; then
-    tmux send-keys -t "$PANE" \
-      ".shogun/queue/inbox/${AGENT_ID}.yaml に ${unread} 件の未読メッセージがあります。確認してください。" \
-      Enter 2>/dev/null || true
+    notify_pane "$PANE" \
+      ".shogun/queue/inbox/${AGENT_ID}.yaml に ${unread} 件の未読メッセージがあります。確認してください。"
   fi
 }
 
 # reports/ の更新を検知したときペインへ通知する（inbox_write 漏れに対する安全網）
 wake_up_reports() {
-  tmux send-keys -t "$PANE" \
-    ".shogun/queue/reports/ に下位エージェントの報告が更新されました。集約して上位へ報告してください。" \
-    Enter 2>/dev/null || true
+  notify_pane "$PANE" \
+    ".shogun/queue/reports/ に下位エージェントの報告が更新されました。集約して上位へ報告してください。"
 }
 
 # ────────────────────────────────────────────────────────────

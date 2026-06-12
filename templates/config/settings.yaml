@@ -24,3 +24,11 @@ startup:
 logging:
   level: info
   dir: .shogun/logs/
+
+# Agent Self-Watch（3段階エスカレーション自動復旧）
+# enabled: true にすると、無応答エージェントを自動復旧する ASW が有効になる
+escalation_policy:
+  enabled: false
+  phase1_nudge_sec: 300      # 5分: 催促メッセージを送る
+  phase2_interrupt_sec: 600  # 10分: Ctrl-C で中断
+  phase3_clear_sec: 900      # 15分: /clear でリセット

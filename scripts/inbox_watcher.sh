@@ -78,6 +78,96 @@ wake_up_reports() {
 }
 
 # ────────────────────────────────────────────────────────────
+# Agent Self-Watch（3段階エスカレーション自動復旧）
+# ────────────────────────────────────────────────────────────
+
+# フェーズ1: 催促メッセージ（nudge）
+escalate_phase1() {
+  local pane="$1"
+  notify_pane "$pane" \
+    "（システム自動通知）長時間無応答が検知されました。作業を再開してください。"
+}
+
+# フェーズ2: 中断（Ctrl-C）
+escalate_phase2() {
+  local pane="$1"
+  tmux send-keys -t "$pane" C-c 2>/dev/null || true
+}
+
+# フェーズ3: リセット（/clear）
+escalate_phase3() {
+  local pane="$1"
+  notify_pane "$pane" "/clear"
+}
+
+# エスカレーションフェーズを判定する純粋関数（テスト対象）
+# 引数: <経過秒> <phase1閾値> <phase2閾値> <phase3閾値>
+# 戻り値: 実行すべきフェーズ番号を stdout に出力（0=なし, 1, 2, 3）
+get_escalation_phase() {
+  local elapsed="$1" p1="$2" p2="$3" p3="$4"
+  if [[ "$elapsed" -ge "$p3" ]]; then
+    echo 3
+  elif [[ "$elapsed" -ge "$p2" ]]; then
+    echo 2
+  elif [[ "$elapsed" -ge "$p1" ]]; then
+    echo 1
+  else
+    echo 0
+  fi
+}
+
+# エスカレーション監視ループ（SHOGUN_ASW_ENABLED=true のとき main から起動）
+watch_escalation() {
+  local pane="$1"
+  local phase1_sec="${SHOGUN_ASW_PHASE1_SEC:-300}"
+  local phase2_sec="${SHOGUN_ASW_PHASE2_SEC:-600}"
+  local phase3_sec="${SHOGUN_ASW_PHASE3_SEC:-900}"
+  local check_interval=30
+  local last_phase=0
+  local last_esc_time=0
+
+  while true; do
+    sleep "$check_interval"
+
+    # tmux ペインの最終アクティビティ（秒単位エポック）を取得
+    local last_activity
+    last_activity="$(tmux display-message -t "$pane" -p '#{pane_activity}' 2>/dev/null || echo 0)"
+    if [[ "$last_activity" -eq 0 ]]; then continue; fi
+
+    local now elapsed
+    now="$(date +%s)"
+    elapsed=$(( now - last_activity ))
+
+    local target_phase
+    target_phase="$(get_escalation_phase "$elapsed" "$phase1_sec" "$phase2_sec" "$phase3_sec")"
+
+    # アクティビティ再開でフェーズをリセット
+    # エスカレーション操作自体も pane_activity を更新するため、
+    # 最後のエスカレーション後 check_interval*2 より新しい活動のみ本物の復帰とみなす
+    if [[ "$target_phase" -eq 0 ]]; then
+      if [[ "$last_phase" -gt 0 ]] && (( last_activity > last_esc_time + check_interval * 2 )); then
+        last_phase=0
+        last_esc_time=0
+      fi
+      continue
+    fi
+
+    # 常に last_phase+1 から順に昇格させ、初回でも高フェーズへ飛び越すのを防ぐ
+    local next_phase=$(( last_phase + 1 ))
+    if [[ "$next_phase" -gt "$target_phase" ]]; then
+      continue
+    fi
+    case "$next_phase" in
+      1) escalate_phase1 "$pane" ;;
+      2) escalate_phase2 "$pane" ;;
+      3) escalate_phase3 "$pane" ;;
+    esac
+    last_phase="$next_phase"
+    last_esc_time="$now"
+  done
+}
+
+# ────────────────────────────────────────────────────────────
 # 監視ループ
 # ────────────────────────────────────────────────────────────
 
@@ -131,6 +221,12 @@ main() {
   if [[ -n "$REPORT_SOURCES" ]]; then
     watch_reports &
   fi
+
+  # Agent Self-Watch: 環境変数で有効化されたときだけ起動
+  if [[ "${SHOGUN_ASW_ENABLED:-false}" == "true" ]]; then
+    watch_escalation "$PANE" &
+  fi
+
   watch_inbox
 }
 

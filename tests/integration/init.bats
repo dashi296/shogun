@@ -147,3 +147,28 @@ process.stdout.write(d.custom ? 'ok' : 'ng');
 "
   [ "$output" = "ok" ]
 }
+
+# --- Bloom Taxonomy ---
+
+@test "init: config.yaml contains capability_tiers section" {
+  shogun init
+
+  run node -e "
+const yaml = require('js-yaml');
+const d = yaml.load(require('fs').readFileSync('.shogun/config.yaml', 'utf8'));
+process.stdout.write(JSON.stringify(d.capability_tiers != null));
+"
+  [ "$output" = "true" ]
+}
+
+@test "init: capability_tiers has ashigaru bloom_max 3 and gunshi bloom_min 4" {
+  shogun init
+
+  run node -e "
+const yaml = require('js-yaml');
+const d = yaml.load(require('fs').readFileSync('.shogun/config.yaml', 'utf8'));
+const t = d.capability_tiers;
+process.stdout.write(JSON.stringify(t.ashigaru.bloom_max === 3 && t.gunshi.bloom_min === 4));
+"
+  [ "$output" = "true" ]
+}

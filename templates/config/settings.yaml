@@ -6,6 +6,18 @@ agents:
   taisho_model: opus       # 大将のモデル (opus/sonnet)
   worker_model: sonnet     # 足軽・軍師・目付のモデル
 
+# Bloom's Taxonomy に基づくエージェントルーティング基準
+# L1: 記憶 / L2: 理解 / L3: 適用 / L4: 分析 / L5: 評価 / L6: 創造
+capability_tiers:
+  ashigaru:
+    bloom_max: 3           # L1-L3: 記憶・理解・適用（定型実装・既知手順・単純変更）
+  gunshi:
+    bloom_min: 4           # L4-L6: 分析・評価・創造（設計・リスク分析・新規考案）
+  model_bloom_ceiling:
+    haiku: 3               # Haiku はL3まで
+    sonnet: 5              # Sonnet はL5まで
+    opus: 6                # Opus はL6まで
+
 language: ja
 startup:
   skip_permissions: false  # true にする場合は意味を理解した上で明示的に変更してください

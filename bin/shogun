@@ -446,6 +446,8 @@ process.stdout.write(v ? "true" : "false");
   # ─── taisho-<safe_name>-<hash> セッション（Taisho 用、1ペイン）
   tmux new-session -d -s "$session_taisho" -x 220 -y 50
   tmux set-option -t "$session_taisho" status-style "bg=magenta,fg=white"
+  tmux set-option -t "$session_taisho" pane-border-status top 2>/dev/null || true
+  tmux set-option -t "$session_taisho" pane-border-format " #{pane_title} " 2>/dev/null || true
 
   # inbox_watcher.sh をバックグラウンドで起動（Taisho）
   # claude より先に起動しないと、claude の TUI が入力を乗っ取り
@@ -457,6 +459,7 @@ process.stdout.write(v ? "true" : "false");
   tmux send-keys -t "$taisho_pane" \
     "SHOGUN_ROOT=${SHOGUN_ROOT} SHOGUN_REPORT_SOURCES=karo bash ${SHOGUN_BIN_DIR}/scripts/inbox_watcher.sh taisho ${taisho_pane} &" \
     Enter 2>/dev/null || true
+  tmux select-pane -t "$taisho_pane" -T "taisho: 待機中" 2>/dev/null || true
 
   if [[ "$setup_only" == "false" ]]; then
     local taisho_cmd
@@ -467,6 +470,8 @@ process.stdout.write(v ? "true" : "false");
   # ─── multiagent-<name> セッション
   # ペイン0: karo
   tmux new-session -d -s "$session_multi" -x 220 -y 50
+  tmux set-option -t "$session_multi" pane-border-status top 2>/dev/null || true
+  tmux set-option -t "$session_multi" pane-border-format " #{pane_title} " 2>/dev/null || true
 
   local pane_roles=("karo" "gunshi" "metsuke")
   # ashigaru1〜N を追加
@@ -505,6 +510,7 @@ process.stdout.write(v ? "true" : "false");
     tmux send-keys -t "$pane_id" \
       "SHOGUN_ROOT=${SHOGUN_ROOT} ${report_sources_env}bash ${SHOGUN_BIN_DIR}/scripts/inbox_watcher.sh ${role} ${pane_id} &" \
       Enter 2>/dev/null || true
+    tmux select-pane -t "$pane_id" -T "${role}: 待機中" 2>/dev/null || true
 
     if [[ "$setup_only" == "false" ]]; then
       # ペインのモデルを決定

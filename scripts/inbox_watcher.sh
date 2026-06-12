@@ -47,17 +47,25 @@ notify_pane() {
 
 # inbox の未読件数を確認し、未読があればペインへ通知する
 wake_up_inbox() {
-  local unread
-  # シェルインジェクション防止: INBOXパスを process.argv 経由で渡す
-  unread=$(node -e '
+  local unread subject node_out
+  # 1回の node 呼び出しで件数と件名を同時取得（二重読み込み・TOCTOU 回避）
+  node_out=$(node -e '
 const yaml = require("js-yaml");
 const inbox = process.argv[1];
 const data = yaml.load(require("fs").readFileSync(inbox, "utf8")) || {};
 const msgs = (data.messages || []).filter(m => m.status === "unread");
-process.stdout.write(String(msgs.length));
+const subject = msgs.length > 0 ? (msgs[0].subject || "").replace(/\n/g, " ").slice(0, 40) : "";
+process.stdout.write(String(msgs.length) + "\n" + subject);
 ' -- "$INBOX" 2>/dev/null || echo "0")
+  unread="${node_out%%$'\n'*}"
+  if [[ "$node_out" == *$'\n'* ]]; then
+    subject="${node_out#*$'\n'}"
+  else
+    subject=""
+  fi
 
   if [[ "$unread" -gt 0 ]]; then
+    tmux select-pane -t "$PANE" -T "${AGENT_ID}: ${subject:-メッセージあり}" 2>/dev/null || true
     notify_pane "$PANE" \
       ".shogun/queue/inbox/${AGENT_ID}.yaml に ${unread} 件の未読メッセージがあります。確認してください。"
   fi

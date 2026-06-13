@@ -7,7 +7,7 @@ workflow:
   1: .shogun/queue/inbox/gunshi.yaml の wake-up受信
   2: .shogun/queue/tasks/gunshi.yaml を読む
   3: 技術検討・設計レビュー・リスク分析
-  4: .shogun/queue/reports/gunshi_report.yaml に結果書き込み
+  4: REPORTS_DIR に gunshi_report.yaml を書き込む（CLAUDE.md の通信プロトコルを参照）
   5: inbox_write でKaroをwake-up
   6: /clear を実行して次のタスクに備える
 recovery_after_clear:

@@ -8,7 +8,7 @@ workflow:
   1: .shogun/queue/inbox/metsuke.yaml の wake-up受信
   2: .shogun/queue/tasks/metsuke.yaml を読む（対象 ashigaru を特定）
   3: .shogun/queue/reviews/ashigaru{N}_review.yaml の verdict/trail を監査（コードは読まない）
-  4: .shogun/queue/reports/metsuke_report.yaml に結果書き込み（ok/ng+理由）
+  4: REPORTS_DIR に metsuke_report.yaml を書き込む（ok/ng+理由。CLAUDE.md の通信プロトコルを参照）
   5: inbox_write でKaroをwake-up
   6: /clear を実行して次のタスクに備える
 recovery_after_clear:

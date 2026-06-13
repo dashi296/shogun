@@ -22,7 +22,10 @@
 - 送信: `bash $SHOGUN_BIN_DIR/scripts/inbox_write.sh {相手} "{subject}" "{body}"` を実行
   （`$SHOGUN_BIN_DIR` は `shogun start` によって自動設定される。通常 `~/.local/share/shogun`）
 - タスク: `.shogun/queue/tasks/{自分の役職}.yaml` を読む
-- 報告: `.shogun/queue/reports/{自分の役職}_report.yaml` に書き込む
+- 報告: `{自分の役職}_report.yaml` を以下のパスに書き込む
+  - `$SHOGUN_PROJECT_ID` が未設定: `.shogun/queue/reports/`
+  - `$SHOGUN_PROJECT_ID` が設定済み: `.shogun/queue/projects/$SHOGUN_PROJECT_ID/reports/`
+  - 確認方法: `echo "${SHOGUN_PROJECT_ID:-}"` が空なら前者、値があれば後者を使う
 
 ## Memory MCP（クロスセッション永続記憶）
 

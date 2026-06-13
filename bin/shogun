@@ -295,9 +295,12 @@ fs.writeFileSync(file, yaml.dump(data, {allowUnicode: true}));
   local claude_commands_src="${templates}/.claude/commands"
   if [[ -d "$claude_commands_src" ]]; then
     mkdir -p "${project_dir}/.claude/commands"
-    if compgen -G "${claude_commands_src}/"*.md > /dev/null 2>&1; then
-      cp "${claude_commands_src}/"*.md "${project_dir}/.claude/commands/"
-    fi
+    local _f _dest _commands_dst="${project_dir}/.claude/commands"
+    for _f in "${claude_commands_src}/"*.md; do
+      [[ -f "$_f" ]] || continue
+      _dest="${_commands_dst}/$(basename "$_f")"
+      [[ -e "$_dest" ]] || cp "$_f" "$_dest"
+    done
     info ".claude/commands/ にスキルをコピーしました。"
   fi
 
@@ -1173,6 +1176,18 @@ cmd_upgrade() {
     fi
     success "Shogun を ${target_version} にアップデートしました。"
     info "注意: リポジトリは detached HEAD 状態です（タグ ${target_version} を指しています）。"
+    # アップデート後に新規スキルファイルをプロジェクトへ反映（既存カスタマイズは保護）
+    local project_commands_dir="${PWD}/.claude/commands"
+    local updated_commands_src="${SHOGUN_BIN_DIR}/templates/.claude/commands"
+    if [[ -d "$updated_commands_src" && -d "$project_commands_dir" ]]; then
+      local _f _dest _added=0
+      for _f in "${updated_commands_src}/"*.md; do
+        [[ -f "$_f" ]] || continue
+        _dest="${project_commands_dir}/$(basename "$_f")"
+        [[ -e "$_dest" ]] || { cp "$_f" "$_dest"; _added=$(( _added + 1 )); }
+      done
+      [[ "$_added" -gt 0 ]] && info ".claude/commands/ に ${_added} 件の新規スキルを追加しました（既存ファイルは保護されています）。"
+    fi
   else
     error "バージョン ${target_version} が見つかりません。"; exit 1
   fi

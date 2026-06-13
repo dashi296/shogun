@@ -15,15 +15,15 @@ teardown() {
 @test "shutsujin: recognized as a valid command (no unknown-command error)" {
   run shogun shutsujin --setup
   [ "$status" -eq 0 ]
-  ! [[ "$output" == *"不明なコマンド"* ]]
-  ! [[ "$output" == *"unknown command"* ]]
+  [[ "$output" != *"不明なコマンド"* ]]
+  [[ "$output" != *"unknown command"* ]]
 }
 
 @test "kijin: recognized as a valid command (no unknown-command error)" {
   run shogun kijin
   [ "$status" -eq 0 ]
-  ! [[ "$output" == *"不明なコマンド"* ]]
-  ! [[ "$output" == *"unknown command"* ]]
+  [[ "$output" != *"不明なコマンド"* ]]
+  [[ "$output" != *"unknown command"* ]]
 }
 
 @test "start: still works for backward compatibility" {

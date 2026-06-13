@@ -575,6 +575,12 @@ process.stdout.write(String(p.phase3_clear_sec || 900));
       echo "messages: []" > "${SHOGUN_ROOT}/.shogun/queue/inbox/${agent}.yaml"
       echo "tasks: []"    > "${SHOGUN_ROOT}/.shogun/queue/tasks/${agent}.yaml"
       echo "reports: []"  > "${SHOGUN_ROOT}/.shogun/queue/reports/${agent}_report.yaml"
+      case "$agent" in
+        ashigaru*)
+          mkdir -p "${SHOGUN_ROOT}/.shogun/queue/reviews"
+          echo "reviews: []" > "${SHOGUN_ROOT}/.shogun/queue/reviews/${agent}_review.yaml"
+          ;;
+      esac
     done
     success "キューをリセットしました。"
   fi

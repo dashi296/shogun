@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # 使用法: bash inbox_watcher.sh <agent_id> <tmux_pane>
 # 環境変数:
-#   SHOGUN_ROOT            .shogun/ の親ディレクトリ（必須）
-#   SHOGUN_REPORT_SOURCES  消費する報告元の空白区切りリスト。指定時は reports/ も監視する
-#                          （Karo / Taisho 用の安全網）。例: karo -> "gunshi metsuke ashigaru1",
-#                          taisho -> "karo"
+#   SHOGUN_ROOT                .shogun/ の親ディレクトリ（必須）
+#   SHOGUN_REPORT_SOURCES      消費する報告元の空白区切りリスト。指定時は reports/ も監視する
+#                              （Karo / Taisho 用の安全網）。例: karo -> "gunshi metsuke ashigaru1",
+#                              taisho -> "karo"
+#   SHOGUN_ASW_CHECK_INTERVAL  ASW チェック間隔（秒）。デフォルト 30
 set -euo pipefail
 
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -116,13 +117,40 @@ get_escalation_phase() {
   fi
 }
 
+# 次に実行すべきエスカレーションフェーズを計算する純粋関数（テスト対象）
+# 順序を守り高フェーズへの飛び越しを防ぐ（例: last=0, target=3 → 1 を返す）
+# 引数: <target_phase> <last_phase>
+# 戻り値: 実行すべき次フェーズ（0=なし）を stdout に出力
+get_next_escalation_step() {
+  local target_phase="$1" last_phase="$2"
+  local next_phase=$(( last_phase + 1 ))
+  if [[ "$next_phase" -gt "$target_phase" ]]; then
+    echo 0
+  else
+    echo "$next_phase"
+  fi
+}
+
+# アクティビティ再開によるフェーズリセット判定純粋関数（テスト対象）
+# エスカレーション操作自体も pane_activity を更新するため、
+# 最後のエスカレーション後 check_interval*2 より新しい活動のみ本物の復帰とみなす
+# 引数: <last_phase> <last_activity> <last_esc_time> <check_interval>
+# 戻り値: リセットすべきなら 0、そうでなければ 1
+should_reset_escalation() {
+  local last_phase="$1" last_activity="$2" last_esc_time="$3" check_interval="$4"
+  if [[ "$last_phase" -gt 0 ]] && (( last_activity > last_esc_time + check_interval * 2 )); then
+    return 0
+  fi
+  return 1
+}
+
 # エスカレーション監視ループ（SHOGUN_ASW_ENABLED=true のとき main から起動）
 watch_escalation() {
   local pane="$1"
   local phase1_sec="${SHOGUN_ASW_PHASE1_SEC:-300}"
   local phase2_sec="${SHOGUN_ASW_PHASE2_SEC:-600}"
   local phase3_sec="${SHOGUN_ASW_PHASE3_SEC:-900}"
-  local check_interval=30
+  local check_interval="${SHOGUN_ASW_CHECK_INTERVAL:-30}"
   local last_phase=0
   local last_esc_time=0
 
@@ -141,11 +169,8 @@ watch_escalation() {
     local target_phase
     target_phase="$(get_escalation_phase "$elapsed" "$phase1_sec" "$phase2_sec" "$phase3_sec")"
 
-    # アクティビティ再開でフェーズをリセット
-    # エスカレーション操作自体も pane_activity を更新するため、
-    # 最後のエスカレーション後 check_interval*2 より新しい活動のみ本物の復帰とみなす
     if [[ "$target_phase" -eq 0 ]]; then
-      if [[ "$last_phase" -gt 0 ]] && (( last_activity > last_esc_time + check_interval * 2 )); then
+      if should_reset_escalation "$last_phase" "$last_activity" "$last_esc_time" "$check_interval"; then
         last_phase=0
         last_esc_time=0
       fi
@@ -153,8 +178,9 @@ watch_escalation() {
     fi
 
     # 常に last_phase+1 から順に昇格させ、初回でも高フェーズへ飛び越すのを防ぐ
-    local next_phase=$(( last_phase + 1 ))
-    if [[ "$next_phase" -gt "$target_phase" ]]; then
+    local next_phase
+    next_phase="$(get_next_escalation_step "$target_phase" "$last_phase")"
+    if [[ "$next_phase" -eq 0 ]]; then
       continue
     fi
     case "$next_phase" in
@@ -224,14 +250,21 @@ main() {
     command -v inotifywait &>/dev/null || { echo "ERROR: sudo apt install inotify-tools を実行してください"; exit 1; }
   fi
 
+  # バックグラウンド子プロセスの PID を記録し、親終了時に確実に kill する
+  local _reports_pid="" _asw_pid=""
+  # shellcheck disable=SC2064
+  trap 'kill "${_reports_pid:-}" "${_asw_pid:-}" 2>/dev/null || true' EXIT INT TERM HUP
+
   # reports/ 監視は報告元 allowlist が指定されたとき（Karo / Taisho）だけ有効化
   if [[ -n "$REPORT_SOURCES" ]]; then
     watch_reports &
+    _reports_pid=$!
   fi
 
   # Agent Self-Watch: 環境変数で有効化されたときだけ起動
   if [[ "${SHOGUN_ASW_ENABLED:-false}" == "true" ]]; then
     watch_escalation "$PANE" &
+    _asw_pid=$!
   fi
 
   watch_inbox

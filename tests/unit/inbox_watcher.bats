@@ -289,6 +289,46 @@ setup() {
 }
 
 # ────────────────────────────────────────────────────────────
+# is_agent_idle: Stop フックが立てた idle フラグで idle/busy を判定する
+#
+# idle（フラグあり）= ターン完了済みで安全に起こせる → 0
+# busy（フラグなし）= 作業中なのでエスカレーションをスキップ → 1
+# project_id 設定時はフラグ名に project_id を含める（名前衝突回避）。
+# ────────────────────────────────────────────────────────────
+
+@test "is_agent_idle: returns 0 (idle) when flag exists" {
+  local agent="idletest_$$"
+  touch "/tmp/shogun_idle_${agent}"
+  run is_agent_idle "$agent" ""
+  rm -f "/tmp/shogun_idle_${agent}"
+  [ "$status" -eq 0 ]
+}
+
+@test "is_agent_idle: returns 1 (busy) when flag is absent" {
+  local agent="idletest_$$"
+  rm -f "/tmp/shogun_idle_${agent}"
+  run is_agent_idle "$agent" ""
+  [ "$status" -ne 0 ]
+}
+
+@test "is_agent_idle: uses project-specific flag when project_id is set" {
+  local agent="idletest_$$" proj="idleproj_$$"
+  touch "/tmp/shogun_idle_${proj}_${agent}"
+  run is_agent_idle "$agent" "$proj"
+  rm -f "/tmp/shogun_idle_${proj}_${agent}"
+  [ "$status" -eq 0 ]
+}
+
+@test "is_agent_idle: project flag does not satisfy the no-project check" {
+  # project 別フラグだけがある場合、project_id 未指定の判定では busy(1) になる
+  local agent="idletest_$$" proj="idleproj_$$"
+  touch "/tmp/shogun_idle_${proj}_${agent}"
+  run is_agent_idle "$agent" ""
+  rm -f "/tmp/shogun_idle_${proj}_${agent}"
+  [ "$status" -ne 0 ]
+}
+
+# ────────────────────────────────────────────────────────────
 # trap on EXIT: バックグラウンド子プロセスの kill 確認 (#64 回帰)
 #
 # main() 末尾の trap が EXIT 時に watch_reports / watch_escalation の
@@ -310,10 +350,15 @@ source "${SHOGUN_REPO}/scripts/inbox_watcher.sh"
 
 # 子プロセス起動時に PID をファイルへ書き出してから長時間待機するスタブ
 # Bash 3.2 では $$ がサブシェルでも親PIDを返すため sh -c 'echo $PPID' で自身のPIDを取得する
-watch_reports() { sh -c 'echo $PPID' > "${TMP_DIR}/reports_pid"; sleep 999; }
-watch_escalation() { sh -c 'echo $PPID' > "${TMP_DIR}/asw_pid"; sleep 999; }
+# exec で sleep に置き換え、記録する PID 自身を sleep にする。
+# subshell のまま foreground で sleep すると、subshell を kill しても孫の sleep が
+# orphan 化して bats の出力パイプを掴み続け、全テスト通過後も bats が終了できなくなる。
+# 本番の fswatch/inotifywait は親が死ねば SIGPIPE で連鎖終了するため、この exec 置換は
+# 「記録した子プロセスが kill される」という検証意図と等価。
+watch_reports() { sh -c 'echo $PPID' > "${TMP_DIR}/reports_pid"; exec sleep 999; }
+watch_escalation() { sh -c 'echo $PPID' > "${TMP_DIR}/asw_pid"; exec sleep 999; }
 # watch_inbox は実際の本番同様に SIGTERM が来るまでブロックする
-watch_inbox() { sleep 999; }
+watch_inbox() { exec sleep 999; }
 
 # fswatch / inotifywait のコマンド存在チェックを通過させるスタブ
 fswatch() { :; }

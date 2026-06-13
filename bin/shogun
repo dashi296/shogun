@@ -201,6 +201,7 @@ cmd_init() {
     "${shogun_dir}/queue/tasks" \
     "${shogun_dir}/queue/reports" \
     "${shogun_dir}/queue/inbox" \
+    "${shogun_dir}/queue/reviews" \
     "${shogun_dir}/config" \
     "${shogun_dir}/instructions" \
     "${shogun_dir}/memory" \
@@ -245,6 +246,9 @@ cmd_init() {
     echo "messages: []"   > "${shogun_dir}/queue/inbox/${agent}.yaml"
     echo "tasks: []"      > "${shogun_dir}/queue/tasks/${agent}.yaml"
     echo "reports: []"    > "${shogun_dir}/queue/reports/${agent}_report.yaml"
+    case "$agent" in
+      ashigaru*) echo "reviews: []" > "${shogun_dir}/queue/reviews/${agent}_review.yaml" ;;
+    esac
   done
 
   # templates/.mcp.json → プロジェクトルートの .mcp.json にコピー（既存時はスキップ）
@@ -571,6 +575,12 @@ process.stdout.write(String(p.phase3_clear_sec || 900));
       echo "messages: []" > "${SHOGUN_ROOT}/.shogun/queue/inbox/${agent}.yaml"
       echo "tasks: []"    > "${SHOGUN_ROOT}/.shogun/queue/tasks/${agent}.yaml"
       echo "reports: []"  > "${SHOGUN_ROOT}/.shogun/queue/reports/${agent}_report.yaml"
+      case "$agent" in
+        ashigaru*)
+          mkdir -p "${SHOGUN_ROOT}/.shogun/queue/reviews"
+          echo "reviews: []" > "${SHOGUN_ROOT}/.shogun/queue/reviews/${agent}_review.yaml"
+          ;;
+      esac
     done
     success "キューをリセットしました。"
   fi

@@ -153,3 +153,14 @@ fs.writeFileSync(cfg, yaml.dump(d, {allowUnicode: true}));
   [ "$status" -eq 0 ]
   [[ "$output" == *"SHOGUN_ASW_ENABLED=true"* ]]
 }
+
+@test "start: resets ashigaru review files to reviews: []" {
+  _stub_tmux
+  # 既存の review ファイルを事前に作成
+  mkdir -p ".shogun/queue/reviews"
+  printf 'reviews:\n  - round: 1\n' > ".shogun/queue/reviews/ashigaru1_review.yaml"
+  run shogun start --clean --setup
+  [ "$status" -eq 0 ]
+  run cat ".shogun/queue/reviews/ashigaru1_review.yaml"
+  [ "$output" = "reviews: []" ]
+}

@@ -28,6 +28,24 @@ teardown() {
   [ -d ".shogun/queue/reports" ]
 }
 
+@test "init: creates reviews queue directory" {
+  shogun init
+  [ -d ".shogun/queue/reviews" ]
+}
+
+@test "init: creates per-ashigaru review file with reviews: []" {
+  shogun init
+  [ -f ".shogun/queue/reviews/ashigaru1_review.yaml" ]
+  run cat ".shogun/queue/reviews/ashigaru1_review.yaml"
+  [ "$output" = "reviews: []" ]
+}
+
+@test "init: does NOT create review files for non-ashigaru roles" {
+  shogun init
+  [ ! -f ".shogun/queue/reviews/karo_review.yaml" ]
+  [ ! -f ".shogun/queue/reviews/metsuke_review.yaml" ]
+}
+
 @test "init: creates instructions, memory, and logs directories" {
   shogun init
   [ -d ".shogun/instructions" ]
@@ -108,6 +126,12 @@ process.stdout.write(JSON.stringify(d.messages));
   echo "node_modules/" > .gitignore
   shogun init
   grep -q "Shogun" .gitignore
+}
+
+@test "init: gitignore includes reviews queue pattern" {
+  echo "node_modules/" > .gitignore
+  shogun init
+  grep -q "queue/reviews/\*\.yaml" .gitignore
 }
 
 @test "init: creates dashboard.md in .shogun/" {

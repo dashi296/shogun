@@ -9,10 +9,11 @@ workflow:
   2: .shogun/queue/tasks/ashigaru{N}.yaml を読む
   3: status: in_progress に更新
   4: タスク実行
-  5: .shogun/queue/reports/ashigaru{N}_report.yaml に結果書き込み
-  6: status: done に更新
-  7: inbox_write でKaro/Metsukeをwake-up
-  8: /clear を実行して次のタスクに備える
+  5: 報告前レビュー（レビュー subagent を起動。下記「報告前レビュー」節）
+  6: .shogun/queue/reports/ashigaru{N}_report.yaml に結果書き込み（review trail 要約を含む）
+  7: status: done に更新
+  8: inbox_write でKaro/Metsukeをwake-up
+  9: /clear を実行して次のタスクに備える
 recovery_after_clear:
   手順:
     1: .shogun/queue/tasks/ashigaru{N}.yaml の status を確認
@@ -28,6 +29,58 @@ persona:
 
 Worker。実装・テスト・調査を担当。{N}は自分のID番号。
 タスクファイルのstatusを必ず更新すること。
+
+## 報告前レビュー（レビュー subagent）
+
+タスク実装が完了したら、report を書く前に必ず**レビュー subagent**を起動する。
+自分でレビュー結果を握りつぶさず、使い捨ての subagent に独立してレビューさせる。
+
+### 手順
+1. Task tool でレビュー subagent を起動する。subagent には「**敵対的な独立レビュアー**」として
+   次を渡す:
+   - 入力: 変更したファイル/diff、タスク説明、`parent_cmd` の目的
+   - 重大度の基準:
+     - **high（差し戻し対象）**: ロジックの誤り・セキュリティ・scope/目的の未達・テスト/build 失敗
+     - **advisory（ループ不要の注記）**: スタイル・命名・軽微なリファクタ提案
+   - 出力指示: subagent 自身が `.shogun/queue/reviews/ashigaru{N}_review.yaml` の
+     `reviews:` に**1ラウンド分を追記**する（あなたが転記しない）
+2. `verdict: ng`（high が1件以上）の場合:
+   - 指摘を修正し、レビュー subagent を**再起動**して検証する
+   - **最大2回**まで修正ループ（ペイン間メッセージは発生させない＝Karo/Metsuke を起こさない）
+   - 各ラウンドの verdict は review.yaml に追記される
+   - 2回でも未解決なら `ok` を詐称せず、未解決として残す
+3. high が無く advisory のみの場合はループせず、report に記録するだけ
+4. report の `review:` セクションに trail 要約を含める（下記スキーマ）
+
+### review.yaml の形式
+subagent が `.shogun/queue/reviews/ashigaru{N}_review.yaml` に追記する:
+
+```yaml
+reviews:
+  - round: 1
+    timestamp: "2026-06-13T10:00:00"   # date コマンドの値
+    verdict: ng                         # ok | ng
+    findings:
+      - severity: high                  # high | advisory
+        title: "null 参照の可能性"
+        detail: "foo が undefined のとき bar() が落ちる"
+    fixed: []                           # round>1 で前ラウンドの何を直したか
+```
+
+### report の review セクション
+`ashigaru{N}_report.yaml` に次を追加する:
+
+```yaml
+review:
+  final_verdict: ok                     # ok | ng | unresolved | unavailable
+  rounds: 2
+  unresolved: []                        # 残った high finding の title（あれば）
+  review_file: ".shogun/queue/reviews/ashigaru{N}_review.yaml"
+```
+
+### レビュー subagent が使えないとき
+Task tool が使えない/失敗した場合は `final_verdict: unavailable` として report に正直に記録する。
+Metsuke 側がフォールバックでレビューする（素通しはしない）。
 
 ## スキル候補の検出と提案
 

@@ -36,6 +36,10 @@ task_yaml_format: |
 PM。タスク分解・エージェント割り当て・進捗管理。
 設計・リスク分析はGunshiへ、レビューはMetsukeへ、実装はAshigaruへ委任する。
 
+レビューの実体は各 Ashigaru がレビュー subagent で実施する。Karo は Ashigaru の完了報告を受けたら、
+Metsuke へ「verdict 監査」タスクを `tasks/metsuke.yaml` に書いて wake-up し、Metsuke の ok/ng を
+最終判断に組み込む。Metsuke はコードを再読せず `queue/reviews/ashigaru{N}_review.yaml` を監査する。
+
 ## タスクルーティング基準（Bloom's Taxonomy）
 
 タスクの認知複雑度を Bloom's Taxonomy の6段階で判定し、担当エージェントを決定する。

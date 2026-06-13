@@ -205,3 +205,85 @@ setup() {
   [ "${lines[0]}" = "send-keys -t testpane /clear" ]
   [ "${lines[1]}" = "send-keys -t testpane Enter" ]
 }
+
+# ────────────────────────────────────────────────────────────
+# get_next_escalation_step: フェーズ昇格の順序を守る純粋関数
+# ────────────────────────────────────────────────────────────
+
+@test "get_next_escalation_step: returns 1 when last=0 and target=1" {
+  run get_next_escalation_step 1 0
+  [ "$output" = "1" ]
+}
+
+@test "get_next_escalation_step: returns 1 when last=0 and target=3 (no jump)" {
+  run get_next_escalation_step 3 0
+  [ "$output" = "1" ]
+}
+
+@test "get_next_escalation_step: returns 2 when last=1 and target=2" {
+  run get_next_escalation_step 2 1
+  [ "$output" = "2" ]
+}
+
+@test "get_next_escalation_step: returns 3 when last=2 and target=3" {
+  run get_next_escalation_step 3 2
+  [ "$output" = "3" ]
+}
+
+@test "get_next_escalation_step: returns 0 when last=1 and target=1 (already at target)" {
+  run get_next_escalation_step 1 1
+  [ "$output" = "0" ]
+}
+
+@test "get_next_escalation_step: returns 0 when last=3 and target=3 (already at max)" {
+  run get_next_escalation_step 3 3
+  [ "$output" = "0" ]
+}
+
+# ────────────────────────────────────────────────────────────
+# should_reset_escalation: アクティビティ再開によるリセット判定
+# ────────────────────────────────────────────────────────────
+
+@test "should_reset_escalation: resets when last_phase>0 and activity is recent enough" {
+  # last_activity=200, last_esc_time=100, check_interval=30 → threshold=160 < 200 → reset
+  run should_reset_escalation 1 200 100 30
+  [ "$status" -eq 0 ]
+}
+
+@test "should_reset_escalation: does not reset when activity is too close to last escalation" {
+  # last_activity=155, last_esc_time=100, check_interval=30 → threshold=160 > 155 → no reset
+  run should_reset_escalation 1 155 100 30
+  [ "$status" -ne 0 ]
+}
+
+@test "should_reset_escalation: does not reset when last_phase=0" {
+  run should_reset_escalation 0 9999 0 30
+  [ "$status" -ne 0 ]
+}
+
+@test "should_reset_escalation: resets only when activity strictly exceeds threshold" {
+  # last_activity=160, last_esc_time=100, check_interval=30 → threshold=160, activity=160 → NOT > threshold → no reset
+  run should_reset_escalation 1 160 100 30
+  [ "$status" -ne 0 ]
+}
+
+# ────────────────────────────────────────────────────────────
+# SHOGUN_ASW_CHECK_INTERVAL: check_interval の環境変数対応
+# ────────────────────────────────────────────────────────────
+
+@test "watch_escalation: uses SHOGUN_ASW_CHECK_INTERVAL when set" {
+  # sleep をスタブして第1引数を記録後 exit 0 でサブシェルを終了させる
+  local log
+  log="$(mktemp)"
+  sleep() { printf '%s\n' "$1" >> "$log"; exit 0; }
+  # tmux は activity=0 を返し、ループは continue → 次の sleep でスタブが発火
+  tmux() { echo 0; }
+
+  export SHOGUN_ASW_CHECK_INTERVAL=5
+  ( watch_escalation "dummy" ) || true
+
+  run cat "$log"
+  rm -f "$log"
+  unset SHOGUN_ASW_CHECK_INTERVAL
+  [ "${lines[0]}" = "5" ]
+}

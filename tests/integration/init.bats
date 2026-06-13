@@ -128,10 +128,10 @@ process.stdout.write(JSON.stringify(d.messages));
   grep -q "Shogun" .gitignore
 }
 
-@test "init: gitignore includes reviews queue pattern" {
+@test "init: gitignore ignores the whole .shogun/ directory" {
   echo "node_modules/" > .gitignore
   shogun init
-  grep -q "queue/reviews/\*\.yaml" .gitignore
+  grep -qx "\.shogun/" .gitignore
 }
 
 @test "init: creates dashboard.md in .shogun/" {
@@ -290,8 +290,8 @@ process.stdout.write(d.project_id);
   [ ! -d ".shogun/projects" ]
 }
 
-@test "init: gitignore includes project queue pattern when --project-id given" {
+@test "init: gitignore covers project queue files via whole .shogun/ ignore when --project-id given" {
   echo "node_modules/" > .gitignore
   shogun init --project-id myproject
-  grep -q "projects/\*\*/\*\.yaml" .gitignore || grep -q "projects" .gitignore
+  grep -qx "\.shogun/" .gitignore
 }

@@ -350,10 +350,15 @@ source "${SHOGUN_REPO}/scripts/inbox_watcher.sh"
 
 # 子プロセス起動時に PID をファイルへ書き出してから長時間待機するスタブ
 # Bash 3.2 では $$ がサブシェルでも親PIDを返すため sh -c 'echo $PPID' で自身のPIDを取得する
-watch_reports() { sh -c 'echo $PPID' > "${TMP_DIR}/reports_pid"; sleep 999; }
-watch_escalation() { sh -c 'echo $PPID' > "${TMP_DIR}/asw_pid"; sleep 999; }
+# exec で sleep に置き換え、記録する PID 自身を sleep にする。
+# subshell のまま foreground で sleep すると、subshell を kill しても孫の sleep が
+# orphan 化して bats の出力パイプを掴み続け、全テスト通過後も bats が終了できなくなる。
+# 本番の fswatch/inotifywait は親が死ねば SIGPIPE で連鎖終了するため、この exec 置換は
+# 「記録した子プロセスが kill される」という検証意図と等価。
+watch_reports() { sh -c 'echo $PPID' > "${TMP_DIR}/reports_pid"; exec sleep 999; }
+watch_escalation() { sh -c 'echo $PPID' > "${TMP_DIR}/asw_pid"; exec sleep 999; }
 # watch_inbox は実際の本番同様に SIGTERM が来るまでブロックする
-watch_inbox() { sleep 999; }
+watch_inbox() { exec sleep 999; }
 
 # fswatch / inotifywait のコマンド存在チェックを通過させるスタブ
 fswatch() { :; }

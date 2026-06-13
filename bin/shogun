@@ -1214,10 +1214,10 @@ cmd_help() {
   echo ""
   echo -e "${BOLD}コマンド一覧:${RESET}"
   echo -e "  ${CYAN}init${RESET}                         プロジェクトを初期化 (.shogun/ を作成)"
-  echo -e "  ${CYAN}start [--clean] [--setup] [--count N] [--legacy-cleanup]${RESET}"
+  echo -e "  ${CYAN}start${RESET} (alias: ${CYAN}shutsujin${RESET}（出陣）) [--clean] [--setup] [--count N] [--legacy-cleanup]"
   echo -e "                                エージェントを tmux で起動"
   echo -e "  ${CYAN}attach${RESET} [taisho|multi]          tmux セッションに接続"
-  echo -e "  ${CYAN}stop [--legacy]${RESET}               エージェントの tmux セッションを終了"
+  echo -e "  ${CYAN}stop${RESET} (alias: ${CYAN}kijin${RESET}（帰陣）) [--legacy]   エージェントの tmux セッションを終了"
   echo -e "  ${CYAN}task${RESET} \"<説明>\" [--priority P]  新規タスクを投入"
   echo -e "  ${CYAN}status${RESET}                       現在の状態を表示"
   echo -e "  ${CYAN}logs${RESET} [--agent <名前>]         ログを表示"
@@ -1246,9 +1246,9 @@ shift 2>/dev/null || true
 case "$COMMAND" in
   init)    cmd_init "$@" ;;
   task)    cmd_task "$@" ;;
-  start)   cmd_start "$@" ;;
-  attach)  cmd_attach "$@" ;;
-  stop)    cmd_stop "$@" ;;
+  start|shutsujin)   cmd_start "$@" ;;
+  attach)            cmd_attach "$@" ;;
+  stop|kijin)        cmd_stop "$@" ;;
   status)  cmd_status "$@" ;;
   logs)    cmd_logs "$@" ;;
   doctor)  cmd_doctor "$@" ;;

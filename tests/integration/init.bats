@@ -172,6 +172,27 @@ process.stdout.write(d.custom ? 'ok' : 'ng');
   [ "$output" = "ok" ]
 }
 
+@test "init: MEMORY_FILE_PATH in .mcp.json is an absolute path" {
+  shogun init
+  run node -e "
+const path = require('path');
+const d = JSON.parse(require('fs').readFileSync('.mcp.json', 'utf8'));
+const p = d.mcpServers.memory.env.MEMORY_FILE_PATH;
+process.stdout.write(path.isAbsolute(p) ? 'ok' : 'ng:' + p);
+"
+  [ "$output" = "ok" ]
+}
+
+@test "init: MEMORY_FILE_PATH points inside project .shogun/memory/" {
+  shogun init
+  run node -e "
+const d = JSON.parse(require('fs').readFileSync('.mcp.json', 'utf8'));
+const p = d.mcpServers.memory.env.MEMORY_FILE_PATH;
+process.stdout.write(p.endsWith('/.shogun/memory/memory.jsonl') ? 'ok' : 'ng:' + p);
+"
+  [ "$output" = "ok" ]
+}
+
 # --- Bloom Taxonomy ---
 
 @test "init: config.yaml contains capability_tiers section" {

@@ -287,3 +287,73 @@ setup() {
   unset SHOGUN_ASW_CHECK_INTERVAL
   [ "${lines[0]}" = "5" ]
 }
+
+# ────────────────────────────────────────────────────────────
+# trap on EXIT: バックグラウンド子プロセスの kill 確認 (#64 回帰)
+#
+# main() 末尾の trap が EXIT 時に watch_reports / watch_escalation の
+# 子プロセスを確実に kill することを検証する。
+# main() はブロッキング呼び出し watch_inbox を含むため、別 bash プロセスで起動する。
+# ────────────────────────────────────────────────────────────
+
+@test "trap on EXIT kills watch_reports and watch_escalation child processes" {
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+
+  local test_script="${tmp_dir}/run_main.sh"
+  cat > "$test_script" << 'SCRIPT'
+set -euo pipefail
+
+# inbox_watcher.sh を source して関数定義を読み込む
+# shellcheck disable=SC1090
+source "${SHOGUN_REPO}/scripts/inbox_watcher.sh"
+
+# 子プロセス起動時に PID をファイルへ書き出してから長時間待機するスタブ
+# Bash 3.2 では $$ がサブシェルでも親PIDを返すため sh -c 'echo $PPID' で自身のPIDを取得する
+watch_reports() { sh -c 'echo $PPID' > "${TMP_DIR}/reports_pid"; sleep 999; }
+watch_escalation() { sh -c 'echo $PPID' > "${TMP_DIR}/asw_pid"; sleep 999; }
+# watch_inbox は実際の本番同様に SIGTERM が来るまでブロックする
+watch_inbox() { sleep 999; }
+
+# fswatch / inotifywait のコマンド存在チェックを通過させるスタブ
+fswatch() { :; }
+inotifywait() { :; }
+
+# main が参照するディレクトリ構造を作成
+mkdir -p "${TMP_DIR}/root/.shogun/queue/inbox"
+
+export SHOGUN_ROOT="${TMP_DIR}/root"
+export SHOGUN_REPORT_SOURCES="ashigaru1"
+export SHOGUN_ASW_ENABLED="true"
+
+main "karo" "dummy"
+SCRIPT
+
+  # run_main.sh をバックグラウンドで起動（watch_inbox が SIGTERM まで待機するため）
+  TMP_DIR="$tmp_dir" SHOGUN_REPO="${SHOGUN_REPO}" bash "$test_script" &
+  local main_pid=$!
+
+  # 子プロセスが起動して PID ファイルを書き込む猶予を与える
+  sleep 0.5
+
+  # テスト側から SIGTERM を送って trap を発火させる（本番と同じシナリオ）
+  kill -TERM "$main_pid" 2>/dev/null || true
+  wait "$main_pid" 2>/dev/null || true
+
+  local reports_pid asw_pid
+  reports_pid="$(cat "${tmp_dir}/reports_pid" 2>/dev/null || echo "")"
+  asw_pid="$(cat "${tmp_dir}/asw_pid" 2>/dev/null || echo "")"
+
+  # PID ファイルが存在すること（両子プロセスが起動したこと）を確認
+  [ -n "$reports_pid" ]
+  [ -n "$asw_pid" ]
+
+  # EXIT trap により両子プロセスが kill されていること（kill -0 が失敗）を確認
+  run kill -0 "$reports_pid"
+  [ "$status" -ne 0 ]
+
+  run kill -0 "$asw_pid"
+  [ "$status" -ne 0 ]
+
+  rm -rf "$tmp_dir"
+}

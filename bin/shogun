@@ -292,7 +292,7 @@ fs.writeFileSync(file, yaml.dump(data, {allowUnicode: true}));
   if [[ -d "$claude_commands_src" ]]; then
     mkdir -p "${project_dir}/.claude/commands"
     if compgen -G "${claude_commands_src}/"*.md > /dev/null 2>&1; then
-      cp "${claude_commands_src}/"*.md "${project_dir}/.claude/commands/"
+      cp -n "${claude_commands_src}/"*.md "${project_dir}/.claude/commands/"
     fi
     info ".claude/commands/ にスキルをコピーしました。"
   fi
@@ -1142,6 +1142,15 @@ cmd_upgrade() {
     fi
     success "Shogun を ${target_version} にアップデートしました。"
     info "注意: リポジトリは detached HEAD 状態です（タグ ${target_version} を指しています）。"
+    # アップデート後に新規スキルファイルをプロジェクトへ反映（既存カスタマイズは cp -n で保護）
+    local project_commands_dir="${PWD}/.claude/commands"
+    local updated_commands_src="${SHOGUN_BIN_DIR}/templates/.claude/commands"
+    if [[ -d "$updated_commands_src" && -d "$project_commands_dir" ]]; then
+      if compgen -G "${updated_commands_src}/"*.md > /dev/null 2>&1; then
+        cp -n "${updated_commands_src}/"*.md "${project_commands_dir}/"
+        info ".claude/commands/ に新規スキルファイルを追加しました（既存ファイルは保護されています）。"
+      fi
+    fi
   else
     error "バージョン ${target_version} が見つかりません。"; exit 1
   fi

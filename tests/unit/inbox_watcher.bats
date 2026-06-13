@@ -289,6 +289,46 @@ setup() {
 }
 
 # ────────────────────────────────────────────────────────────
+# is_agent_idle: Stop フックが立てた idle フラグで idle/busy を判定する
+#
+# idle（フラグあり）= ターン完了済みで安全に起こせる → 0
+# busy（フラグなし）= 作業中なのでエスカレーションをスキップ → 1
+# project_id 設定時はフラグ名に project_id を含める（名前衝突回避）。
+# ────────────────────────────────────────────────────────────
+
+@test "is_agent_idle: returns 0 (idle) when flag exists" {
+  local agent="idletest_$$"
+  touch "/tmp/shogun_idle_${agent}"
+  run is_agent_idle "$agent" ""
+  rm -f "/tmp/shogun_idle_${agent}"
+  [ "$status" -eq 0 ]
+}
+
+@test "is_agent_idle: returns 1 (busy) when flag is absent" {
+  local agent="idletest_$$"
+  rm -f "/tmp/shogun_idle_${agent}"
+  run is_agent_idle "$agent" ""
+  [ "$status" -ne 0 ]
+}
+
+@test "is_agent_idle: uses project-specific flag when project_id is set" {
+  local agent="idletest_$$" proj="idleproj_$$"
+  touch "/tmp/shogun_idle_${proj}_${agent}"
+  run is_agent_idle "$agent" "$proj"
+  rm -f "/tmp/shogun_idle_${proj}_${agent}"
+  [ "$status" -eq 0 ]
+}
+
+@test "is_agent_idle: project flag does not satisfy the no-project check" {
+  # project 別フラグだけがある場合、project_id 未指定の判定では busy(1) になる
+  local agent="idletest_$$" proj="idleproj_$$"
+  touch "/tmp/shogun_idle_${proj}_${agent}"
+  run is_agent_idle "$agent" ""
+  rm -f "/tmp/shogun_idle_${proj}_${agent}"
+  [ "$status" -ne 0 ]
+}
+
+# ────────────────────────────────────────────────────────────
 # trap on EXIT: バックグラウンド子プロセスの kill 確認 (#64 回帰)
 #
 # main() 末尾の trap が EXIT 時に watch_reports / watch_escalation の

@@ -9,6 +9,16 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"$SHOGUN_BIN_DIR\" ] && [ -f \"$SHOGUN_BIN_DIR/scripts/stop_hook.sh\" ] && bash \"$SHOGUN_BIN_DIR/scripts/stop_hook.sh\" || true"
+          }
+        ]
+      }
     ]
   }
 }

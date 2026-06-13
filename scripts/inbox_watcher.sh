@@ -82,6 +82,20 @@ wake_up_reports() {
 # Agent Self-Watch（3段階エスカレーション自動復旧）
 # ────────────────────────────────────────────────────────────
 
+# エスカレーション実行前に idle/busy を判定する純粋関数（テスト対象）
+# Stop フック（scripts/stop_hook.sh）が立てた idle フラグの有無で判定する。
+# idle（フラグあり）= ターン完了済みで安全に起こせる、busy（フラグなし）= 作業中。
+# 引数: <agent_id> <project_id_or_empty>
+# 戻り値: idle なら 0（つつき可）、busy なら 1（スキップ）
+is_agent_idle() {
+  local agent="$1" project_id="$2"
+  if [[ -n "$project_id" ]]; then
+    [[ -f "/tmp/shogun_idle_${project_id}_${agent}" ]]
+  else
+    [[ -f "/tmp/shogun_idle_${agent}" ]]
+  fi
+}
+
 # フェーズ1: 催促メッセージ（nudge）
 escalate_phase1() {
   local pane="$1"
@@ -183,6 +197,14 @@ watch_escalation() {
     if [[ "$next_phase" -eq 0 ]]; then
       continue
     fi
+
+    # idle 状態でないとき（busy = 作業中）はエスカレーションをスキップする。
+    # last_phase/last_esc_time はリセットせず、次のチェックで再判定する
+    # （busy 中の作業エージェントを誤って中断しないための安全網）。
+    if ! is_agent_idle "$AGENT_ID" "${SHOGUN_PROJECT_ID:-}"; then
+      continue
+    fi
+
     case "$next_phase" in
       1) escalate_phase1 "$pane" ;;
       2) escalate_phase2 "$pane" ;;

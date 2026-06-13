@@ -21,6 +21,18 @@ ROOT="${SHOGUN_ROOT:-${CLAUDE_PROJECT_DIR:-$PWD}}"
 # パストラバーサル防止: 役職名は英数字・アンダースコア・ハイフンのみ許可
 [[ "$ROLE" =~ ^[A-Za-z0-9_-]+$ ]] || exit 0
 
+# ターン開始時に idle フラグを削除して busy 状態へ遷移する。
+# Stop フック（scripts/stop_hook.sh）がターン完了時に立てた idle フラグを消すことで、
+# escalation watcher が「作業中（busy）」と判定し誤って中断しないようにする。
+# フラグ名は stop_hook.sh / inbox_watcher.sh の is_agent_idle と一致させる。
+_PROJECT_ID="${SHOGUN_PROJECT_ID:-}"
+if [[ -n "$_PROJECT_ID" && "$_PROJECT_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
+  rm -f "/tmp/shogun_idle_${_PROJECT_ID}_${ROLE}"
+else
+  # project_id が未設定、または不正値（パストラバーサル）の場合はデフォルト名で削除
+  rm -f "/tmp/shogun_idle_${ROLE}"
+fi
+
 # instructions ファイル名は末尾の数字を除去する（ashigaru1 → ashigaru）。
 # inbox / tasks / reports は番号付きのまま使うため、ここでは表示用 ROLE は変えない。
 BASE_ROLE="$ROLE"

@@ -65,7 +65,7 @@ process.stdout.write(String(msgs.length) + "\n" + subject);
   fi
 
   if [[ "$unread" -gt 0 ]]; then
-    tmux select-pane -t "$PANE" -T "${AGENT_ID}: ${subject:-メッセージあり}" 2>/dev/null || true
+    tmux select-pane -t "$PANE" -T "${subject:-メッセージあり}" 2>/dev/null || true
     notify_pane "$PANE" \
       "${INBOX#${ROOT}/} に ${unread} 件の未読メッセージがあります。確認してください。"
   fi

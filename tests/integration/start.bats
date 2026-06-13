@@ -88,6 +88,8 @@ STUB
   run grep "pane-border-format" "$TMUX_LOG"
   [ "$status" -eq 0 ]
   [[ "$output" == *"pane_title"* ]]
+  [[ "$output" == *"@shogun_role"* ]]
+  [[ "$output" == *"@shogun_color"* ]]
 }
 
 @test "start: sets initial pane title for taisho" {
@@ -109,6 +111,48 @@ STUB
   [ "$status" -eq 0 ]
 
   run grep "select-pane.*-T ashigaru1: 待機中" "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+}
+
+@test "start: sets @shogun_role and @shogun_color pane options for taisho" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+
+  run grep "set-option -p.*@shogun_role taisho" "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+
+  run grep "set-option -p.*@shogun_color magenta" "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+}
+
+@test "start: sets @shogun_role and @shogun_color pane options for each agent" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+
+  run grep "set-option -p.*@shogun_role karo" "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+
+  run grep "set-option -p.*@shogun_color yellow" "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+
+  run grep "set-option -p.*@shogun_role gunshi" "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+
+  run grep "set-option -p.*@shogun_color cyan" "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+
+  run grep "set-option -p.*@shogun_role metsuke" "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+
+  run grep "set-option -p.*@shogun_color red" "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+
+  run grep "set-option -p.*@shogun_role ashigaru1" "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+
+  run grep "set-option -p.*@shogun_color green" "$TMUX_LOG"
   [ "$status" -eq 0 ]
 }
 

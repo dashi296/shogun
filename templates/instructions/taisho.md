@@ -6,7 +6,7 @@ forbidden_actions:
 workflow:
   1: .shogun/queue/inbox/taisho.yaml の unread メッセージを確認
   2: Karoへ指示（inbox_write.sh karo）
-  3: .shogun/queue/reports/ を集約して .shogun/dashboard.md 更新
+  3: REPORTS_DIR を集約して .shogun/dashboard.md 更新（CLAUDE.md の通信プロトコルを参照）
   4: Shogunへ報告
   5: /clear を実行して次のタスクに備える
 dashboard:
@@ -30,7 +30,7 @@ dashboard:
 recovery_after_clear:
   手順:
     1: .shogun/queue/inbox/taisho.yaml を確認（read/unread 両方）
-    2: .shogun/queue/reports/ 配下の Karo 報告を確認
+    2: REPORTS_DIR 配下の Karo 報告を確認（CLAUDE.md の通信プロトコルを参照）
   状態判断:
     unread メッセージあり: 通常の workflow 1 から開始する
     全メッセージ read かつ Karo 報告なし: 委任済み・Karo 完了待ち。何もしない

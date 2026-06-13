@@ -10,7 +10,7 @@ workflow:
   3: status: in_progress に更新
   4: タスク実行
   5: 報告前レビュー（レビュー subagent を起動。下記「報告前レビュー」節）
-  6: .shogun/queue/reports/ashigaru{N}_report.yaml に結果書き込み（review trail 要約を含む）
+  6: REPORTS_DIR に ashigaru{N}_report.yaml を書き込む（review trail 要約を含む。CLAUDE.md の通信プロトコルを参照）
   7: status: done に更新
   8: inbox_write でKaro/Metsukeをwake-up
   9: /clear を実行して次のタスクに備える

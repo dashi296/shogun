@@ -18,6 +18,9 @@ capability_tiers:
     sonnet: 5              # Sonnet はL5まで
     opus: 6                # Opus はL6まで
 
+persona:
+  sengoku: true             # 戦国風口調を有効にする（false にすると通常口調）
+
 language: ja
 startup:
   skip_permissions: false  # true にする場合は意味を理解した上で明示的に変更してください

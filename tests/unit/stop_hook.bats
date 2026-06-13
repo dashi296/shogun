@@ -47,6 +47,15 @@ teardown() {
   [ ! -f "/tmp/shogun_idle_../evil" ]
 }
 
+@test "stop_hook: does nothing for a path-traversal SHOGUN_PROJECT_ID" {
+  SHOGUN_ROLE="$ROLE" SHOGUN_PROJECT_ID="../../evil" run bash "${_SCRIPT_DIR}/stop_hook.sh"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  # 不正な project_id ではフラグ名・inbox パスへ展開せず、何も作らない
+  [ ! -f "/tmp/shogun_idle_../../evil_${ROLE}" ]
+  [ ! -f "/tmp/shogun_idle_${ROLE}" ]
+}
+
 @test "stop_hook: prints a message when the inbox has unread messages" {
   mkdir -p "${SHOGUN_ROOT}/.shogun/queue/inbox"
   cat > "${SHOGUN_ROOT}/.shogun/queue/inbox/${ROLE}.yaml" <<'YAML'

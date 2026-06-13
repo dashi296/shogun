@@ -25,12 +25,13 @@ ROOT="${SHOGUN_ROOT:-${CLAUDE_PROJECT_DIR:-$PWD}}"
 # Stop フック（scripts/stop_hook.sh）がターン完了時に立てた idle フラグを消すことで、
 # escalation watcher が「作業中（busy）」と判定し誤って中断しないようにする。
 # フラグ名は stop_hook.sh / inbox_watcher.sh の is_agent_idle と一致させる。
+# project_id の検証も stop_hook.sh と揃える（不正値ならフラグ操作をスキップ＝
+# stop_hook.sh もフラグを作らないため、消すべき対象が存在しない）。
 _PROJECT_ID="${SHOGUN_PROJECT_ID:-}"
-if [[ -n "$_PROJECT_ID" && "$_PROJECT_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
-  rm -f "/tmp/shogun_idle_${_PROJECT_ID}_${ROLE}"
-else
-  # project_id が未設定、または不正値（パストラバーサル）の場合はデフォルト名で削除
+if [[ -z "$_PROJECT_ID" ]]; then
   rm -f "/tmp/shogun_idle_${ROLE}"
+elif [[ "$_PROJECT_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
+  rm -f "/tmp/shogun_idle_${_PROJECT_ID}_${ROLE}"
 fi
 
 # instructions ファイル名は末尾の数字を除去する（ashigaru1 → ashigaru）。

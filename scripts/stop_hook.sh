@@ -21,6 +21,13 @@ AGENT="${SHOGUN_ROLE:-}"
 # パストラバーサル防止: 役職名は英数字・アンダースコア・ハイフンのみ許可
 [[ "$AGENT" =~ ^[A-Za-z0-9_-]+$ ]] || exit 0
 
+# SHOGUN_PROJECT_ID もフラグ名・inbox パスに展開するため同様に検証する
+# （inbox_write.sh / inbox_watcher.sh / inject_role.sh と同じ規約）。
+# フックはセッションを壊さないよう、不正値なら何もせず正常終了する。
+if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
+  [[ "${SHOGUN_PROJECT_ID}" =~ ^[A-Za-z0-9_-]+$ ]] || exit 0
+fi
+
 # idle フラグの命名: SHOGUN_PROJECT_ID 併用時の名前衝突を回避（既存の project_id 連動パターンに倣う）
 if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
   FLAG="/tmp/shogun_idle_${SHOGUN_PROJECT_ID}_${AGENT}"

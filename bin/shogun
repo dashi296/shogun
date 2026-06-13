@@ -247,10 +247,17 @@ cmd_init() {
     echo "reports: []"    > "${shogun_dir}/queue/reports/${agent}_report.yaml"
   done
 
-  # templates/.mcp.json → プロジェクトルートの .mcp.json にコピー（既存時はスキップ）
+  # templates/.mcp.json → プロジェクトルートの .mcp.json に生成（既存時はスキップ）
+  # MEMORY_FILE_PATH は起動ディレクトリに依存しないよう絶対パスで埋め込む
   local mcp_json="${project_dir}/.mcp.json"
   if [[ ! -f "$mcp_json" ]]; then
-    cp "${templates}/.mcp.json" "$mcp_json"
+    local memory_file_path="${project_dir}/.shogun/memory/memory.jsonl"
+    node -e "
+const fs = require('fs');
+const data = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+data.mcpServers.memory.env.MEMORY_FILE_PATH = process.argv[2];
+fs.writeFileSync(process.argv[3], JSON.stringify(data, null, 2) + '\n');
+" "${templates}/.mcp.json" "${memory_file_path}" "${mcp_json}"
     info ".mcp.json を生成しました（Memory MCP 設定）"
   else
     info ".mcp.json はすでに存在します（スキップ）"

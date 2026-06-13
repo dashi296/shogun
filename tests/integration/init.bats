@@ -128,6 +128,12 @@ process.stdout.write(JSON.stringify(d.messages));
   grep -q "Shogun" .gitignore
 }
 
+@test "init: gitignore includes reviews queue pattern" {
+  echo "node_modules/" > .gitignore
+  shogun init
+  grep -q "queue/reviews/\*\.yaml" .gitignore
+}
+
 @test "init: creates dashboard.md in .shogun/" {
   shogun init
   [ -f ".shogun/dashboard.md" ]

@@ -2,6 +2,7 @@
 .shogun/queue/inbox/*.yaml
 .shogun/queue/tasks/*.yaml
 .shogun/queue/reports/*.yaml
+.shogun/queue/reviews/*.yaml
 .shogun/queue/shogun_to_karo.yaml
 .shogun/queue/projects/**/*.yaml
 .shogun/projects/*.yaml

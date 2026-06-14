@@ -18,6 +18,23 @@ export NODE_PATH="${_SCRIPT_DIR}/../node_modules${NODE_PATH:+:$NODE_PATH}"
 # inbox_watcher.sh と共通。SHOGUN_ROOT 由来キーで別リポジトリ間の衝突を防ぐ）。
 source "${_SCRIPT_DIR}/flag_names.sh"
 
+# stdin から Stop フック JSON を読み取り stop_hook_active フィールドを確認する。
+# stop_hook_active=true はフックが既に block 中の再帰呼び出しを示すため、
+# decision:block は出力しないが、idle 遷移・reports 安全網は通常通り実行する。
+HOOK_INPUT=""
+if [[ ! -t 0 ]]; then
+  HOOK_INPUT="$(cat)"
+fi
+stop_hook_active="false"
+if [[ -n "$HOOK_INPUT" ]]; then
+  stop_hook_active=$(node -e '
+    try {
+      const d = JSON.parse(process.argv[1]);
+      process.stdout.write(d.stop_hook_active === true ? "true" : "false");
+    } catch(e) { process.stdout.write("false"); }
+  ' -- "$HOOK_INPUT" 2>/dev/null || echo "false")
+fi
+
 AGENT="${SHOGUN_ROLE:-}"
 
 # 役職が未設定なら何もしない（フックは全セッションで発火するため安全側に倒す）
@@ -67,6 +84,6 @@ const msgs = (data.messages || []).filter(m => m.status === "unread");
 process.stdout.write(String(msgs.length));
 ' -- "$INBOX" 2>/dev/null || echo "0")
 
-if [[ "$unread" -gt 0 ]]; then
-  echo "${INBOX#${ROOT}/} に ${unread} 件の未読メッセージがあります。確認してください。"
+if [[ "$unread" -gt 0 ]] && [[ "$stop_hook_active" != "true" ]]; then
+  printf '{"decision":"block","reason":"未読メッセージを処理してから終了せよ"}\n'
 fi

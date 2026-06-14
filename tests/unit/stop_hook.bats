@@ -126,3 +126,45 @@ YAML
   [ "$status" -eq 0 ]
   [[ "$output" != *"reports"* ]]
 }
+
+# ────────────────────────────────────────────────────────────
+# decision:block 強制継続（issue #55）
+# ────────────────────────────────────────────────────────────
+
+@test "stop_hook: outputs decision block JSON when inbox has unread and stop_hook_active is false" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/inbox"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/inbox/${ROLE}.yaml" <<'YAML'
+messages:
+  - status: unread
+    subject: test-unread
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"decision":"block"'* ]]
+  [ -f "$IDLE" ]
+}
+
+@test "stop_hook: does not block when stop_hook_active is true" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/inbox"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/inbox/${ROLE}.yaml" <<'YAML'
+messages:
+  - status: unread
+    subject: test-unread
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":true}'
+  [ "$status" -eq 0 ]
+  [[ "$output" != *'"decision"'* ]]
+  [ -f "$IDLE" ]
+}
+
+@test "stop_hook: does not block when inbox has no unread (stop_hook_active false)" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/inbox"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/inbox/${ROLE}.yaml" <<'YAML'
+messages:
+  - status: read
+    subject: already-read
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  [[ "$output" != *'"decision"'* ]]
+}

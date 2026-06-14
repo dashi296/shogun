@@ -21,17 +21,19 @@ ROOT="${SHOGUN_ROOT:-${CLAUDE_PROJECT_DIR:-$PWD}}"
 # パストラバーサル防止: 役職名は英数字・アンダースコア・ハイフンのみ許可
 [[ "$ROLE" =~ ^[A-Za-z0-9_-]+$ ]] || exit 0
 
-# ターン開始時に idle フラグを削除して busy 状態へ遷移する。
-# Stop フック（scripts/stop_hook.sh）がターン完了時に立てた idle フラグを消すことで、
-# escalation watcher が「作業中（busy）」と判定し誤って中断しないようにする。
-# フラグ名は stop_hook.sh / inbox_watcher.sh の is_agent_idle と一致させる。
-# project_id の検証も stop_hook.sh と揃える（不正値ならフラグ操作をスキップ＝
-# stop_hook.sh もフラグを作らないため、消すべき対象が存在しない）。
+# SessionStart 時点（起動 / resume / clear）はプロンプト待ち = idle なので idle フラグを立てる。
+# これがないと、起動直後でまだ一度も Stop していないエージェントは「フラグ無し = busy」と
+# 誤判定され、最初のタスク通知が wake ゲート（inbox_watcher の is_agent_idle）で skip される。
+# busy 化はターン開始時の mark_busy.sh（UserPromptSubmit フック）が担う。
+# フラグ名は stop_hook.sh / mark_busy.sh / inbox_watcher.sh の is_agent_idle と一致させる。
+# project_id の検証も stop_hook.sh と揃える（不正値ならフラグ操作をスキップ）。
+# 注: source=compact の継続ターン中はごく短時間 idle 扱いになるが、ASW は既定で無効、
+# かつ inbox 更新がその窓に重なる確率は極小のため許容する。
 _PROJECT_ID="${SHOGUN_PROJECT_ID:-}"
 if [[ -z "$_PROJECT_ID" ]]; then
-  rm -f "/tmp/shogun_idle_${ROLE}"
+  touch "/tmp/shogun_idle_${ROLE}"
 elif [[ "$_PROJECT_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
-  rm -f "/tmp/shogun_idle_${_PROJECT_ID}_${ROLE}"
+  touch "/tmp/shogun_idle_${_PROJECT_ID}_${ROLE}"
 fi
 
 # instructions ファイル名は末尾の数字を除去する（ashigaru1 → ashigaru）。

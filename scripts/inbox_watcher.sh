@@ -11,6 +11,11 @@ set -euo pipefail
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export NODE_PATH="${_SCRIPT_DIR}/../node_modules${NODE_PATH:+:$NODE_PATH}"
 
+# macOS: util-linux の flock を keg-only パスから補完（notify_pane の直列化で使う）
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  export PATH="/opt/homebrew/opt/util-linux/bin:${PATH}"
+fi
+
 # ────────────────────────────────────────────────────────────
 # 純粋関数（テスト対象）
 # ────────────────────────────────────────────────────────────
@@ -41,13 +46,25 @@ should_wake_on_report() {
 # 本文を送ってから Enter を単独送信し、間に短いウェイトを挟むことで取りこぼしを防ぐ。
 notify_pane() {
   local pane="$1" message="$2"
-  tmux send-keys -t "$pane" "$message" 2>/dev/null || true
-  sleep "${SHOGUN_WAKE_ENTER_DELAY:-0.3}"
-  tmux send-keys -t "$pane" Enter 2>/dev/null || true
+  # ペイン単位の flock で本文と Enter を1クリティカルセクションに包み、並行する
+  # watcher（inbox / reports / ASW）の send-keys が隙間に割り込んで混線するのを防ぐ。
+  # ロック取得に失敗（5秒タイムアウト）したら送信を諦める（破損を避け、ループは継続）。
+  local lock_name="${pane//[^A-Za-z0-9_-]/_}"
+  local lock_file="/tmp/shogun_send_${lock_name}.lock"
+  (
+    flock -w 5 200 || exit 0
+    tmux send-keys -t "$pane" "$message" 2>/dev/null || true
+    sleep "${SHOGUN_WAKE_ENTER_DELAY:-0.3}"
+    tmux send-keys -t "$pane" Enter 2>/dev/null || true
+  ) 200>"$lock_file" || true
 }
 
 # inbox の未読件数を確認し、未読があればペインへ通知する
 wake_up_inbox() {
+  # busy（作業中）のときは送らない。描画中・コマンド実行中のペインへ send-keys すると
+  # 出力が破損するため。取りこぼした通知は Stop フックが次ターン冒頭で再提示する。
+  is_agent_idle "$AGENT_ID" "${SHOGUN_PROJECT_ID:-}" || return 0
+
   local unread subject node_out
   # 1回の node 呼び出しで件数と件名を同時取得（二重読み込み・TOCTOU 回避）
   node_out=$(node -e '
@@ -74,6 +91,10 @@ process.stdout.write(String(msgs.length) + "\n" + subject);
 
 # reports/ の更新を検知したときペインへ通知する（inbox_write 漏れに対する安全網）
 wake_up_reports() {
+  # busy 中は送らない（wake_up_inbox と同じく描画破損を防ぐ）。reports 監視は元来
+  # inbox_write 漏れの安全網であり、busy でスキップしても次の更新イベントで再発火する。
+  is_agent_idle "$AGENT_ID" "${SHOGUN_PROJECT_ID:-}" || return 0
+
   notify_pane "$PANE" \
     ".shogun/queue/reports/ に下位エージェントの報告が更新されました。集約して上位へ報告してください。"
 }

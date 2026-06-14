@@ -311,8 +311,10 @@ fs.writeFileSync(file, yaml.dump(data, {allowUnicode: true}));
     info ".claude/commands/ にスキルをコピーしました。"
   fi
 
-  # templates/.claude/settings.json → .claude/settings.json（SessionStart 役職注入フック）
-  # 既存のユーザー設定は壊さずマージし、再 init でも重複登録しない。
+  # templates/.claude/settings.json → .claude/settings.json
+  #   SessionStart=inject_role / Stop=stop_hook / UserPromptSubmit=mark_busy
+  # テンプレートの全フック種別を、既存のユーザー設定を壊さずマージする。
+  # 冪等判定はコマンド中の scripts/<name>.sh の署名で行い、再 init でも重複登録しない。
   local claude_settings_src="${templates}/.claude/settings.json"
   if [[ -f "$claude_settings_src" ]]; then
     mkdir -p "${project_dir}/.claude"
@@ -327,17 +329,30 @@ if (fs.existsSync(dest)) {
   try { d = JSON.parse(fs.readFileSync(dest, "utf8")) || {}; }
   catch (e) { process.exit(2); }   // 不正な JSON は触らない
 }
+// コマンド文字列から scripts/<name>.sh を抜き出して冪等判定の署名にする
+const sig = (cmd) => {
+  const m = (cmd || "").match(/scripts\/([A-Za-z0-9_-]+\.sh)/);
+  return m ? m[1] : (cmd || "");
+};
 d.hooks = d.hooks || {};
-d.hooks.SessionStart = d.hooks.SessionStart || [];
-const already = d.hooks.SessionStart.some(e =>
-  (e.hooks || []).some(h => /inject_role\.sh/.test(h.command || "")));
-if (!already) d.hooks.SessionStart.push(t.hooks.SessionStart[0]);
+const tHooks = t.hooks || {};
+for (const event of Object.keys(tHooks)) {
+  d.hooks[event] = d.hooks[event] || [];
+  const existing = new Set();
+  for (const e of d.hooks[event]) {
+    for (const h of (e.hooks || [])) existing.add(sig(h.command));
+  }
+  for (const entry of tHooks[event]) {
+    const sigs = (entry.hooks || []).map(h => sig(h.command));
+    if (!sigs.some(s => existing.has(s))) d.hooks[event].push(entry);
+  }
+}
 fs.writeFileSync(dest, JSON.stringify(d, null, 2) + "\n");
 ' -- "$claude_settings_dest" "$claude_settings_src" || merge_status=$?
     if [[ "$merge_status" -eq 2 ]]; then
-      info ".claude/settings.json が不正な JSON のため、役職フックの自動追加をスキップしました。"
+      info ".claude/settings.json が不正な JSON のため、フックの自動追加をスキップしました。"
     else
-      info ".claude/settings.json に役職注入フック（SessionStart）を設定しました。"
+      info ".claude/settings.json にフック（SessionStart / Stop / UserPromptSubmit）を設定しました。"
     fi
   fi
 

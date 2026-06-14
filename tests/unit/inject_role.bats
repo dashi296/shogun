@@ -57,6 +57,32 @@ if (d.hookSpecificOutput.hookEventName !== "SessionStart") process.exit(1);
   [[ "$ctx" == *"TAISHO_ROLE_MARKER"* ]]
 }
 
+# --- idle フラグ（コールドスタート対応） ---
+# 起動直後はプロンプト待ち = idle なので idle フラグを立てる。
+# これにより最初のタスク通知が wake ゲートで skip されない。
+# busy 化はターン開始時の mark_busy.sh（UserPromptSubmit）が担う。
+
+@test "inject_role: sets the idle flag" {
+  local role="injidletest_$$"
+  rm -f "/tmp/shogun_idle_${role}"
+  export SHOGUN_ROLE="$role"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh"
+  [ "$status" -eq 0 ]
+  [ -f "/tmp/shogun_idle_${role}" ]
+  rm -f "/tmp/shogun_idle_${role}"
+}
+
+@test "inject_role: sets a project-specific idle flag when SHOGUN_PROJECT_ID is set" {
+  local role="injidletest_$$" proj="injidleproj_$$"
+  rm -f "/tmp/shogun_idle_${proj}_${role}" "/tmp/shogun_idle_${role}"
+  export SHOGUN_ROLE="$role" SHOGUN_PROJECT_ID="$proj"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh"
+  [ "$status" -eq 0 ]
+  [ -f "/tmp/shogun_idle_${proj}_${role}" ]
+  [ ! -f "/tmp/shogun_idle_${role}" ]
+  rm -f "/tmp/shogun_idle_${proj}_${role}"
+}
+
 @test "inject_role: additionalContext includes the common CLAUDE.md" {
   export SHOGUN_ROLE="taisho"
   run bash "${SHOGUN_REPO}/scripts/inject_role.sh"

@@ -51,46 +51,45 @@ setup() {
 # --- SHOGUN_PROJECT_ID path switching ---
 
 @test "inbox_watcher main: uses project-specific inbox when SHOGUN_PROJECT_ID is set" {
-  # main() 関数内のパス決定ロジックをテストするため、
-  # source後に main() の内部変数設定部分を再現して確認する
   local tmp_root
   tmp_root="$(mktemp -d)"
 
-  export SHOGUN_ROOT="$tmp_root"
-  export SHOGUN_PROJECT_ID="proj1"
-
-  # inbox_watcher.sh を source して関数を読み込む
-  # main() を直接呼ぶと監視ループが起動するため、内部パス計算を模倣する
   local expected_inbox="${tmp_root}/.shogun/queue/projects/proj1/inbox/karo.yaml"
-  local actual_inbox
-  if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
-    actual_inbox="${SHOGUN_ROOT}/.shogun/queue/projects/${SHOGUN_PROJECT_ID}/inbox/karo.yaml"
-  else
-    actual_inbox="${SHOGUN_ROOT}/.shogun/queue/inbox/karo.yaml"
-  fi
-
-  [ "$actual_inbox" = "$expected_inbox" ]
+  run resolve_inbox_path "karo" "proj1" "$tmp_root"
+  [ "$output" = "$expected_inbox" ]
 
   rm -rf "$tmp_root"
-  unset SHOGUN_PROJECT_ID
 }
 
 @test "inbox_watcher main: uses default inbox when SHOGUN_PROJECT_ID is not set" {
   local tmp_root
   tmp_root="$(mktemp -d)"
 
-  export SHOGUN_ROOT="$tmp_root"
-  unset SHOGUN_PROJECT_ID
-
   local expected_inbox="${tmp_root}/.shogun/queue/inbox/karo.yaml"
-  local actual_inbox
-  if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
-    actual_inbox="${SHOGUN_ROOT}/.shogun/queue/projects/${SHOGUN_PROJECT_ID}/inbox/karo.yaml"
-  else
-    actual_inbox="${SHOGUN_ROOT}/.shogun/queue/inbox/karo.yaml"
-  fi
+  run resolve_inbox_path "karo" "" "$tmp_root"
+  [ "$output" = "$expected_inbox" ]
 
-  [ "$actual_inbox" = "$expected_inbox" ]
+  rm -rf "$tmp_root"
+}
+
+@test "resolve_reports_dir: returns project-specific path when project_id is set" {
+  local tmp_root
+  tmp_root="$(mktemp -d)"
+
+  local expected="${tmp_root}/.shogun/queue/projects/proj1/reports"
+  run resolve_reports_dir "proj1" "$tmp_root"
+  [ "$output" = "$expected" ]
+
+  rm -rf "$tmp_root"
+}
+
+@test "resolve_reports_dir: returns default path when project_id is empty" {
+  local tmp_root
+  tmp_root="$(mktemp -d)"
+
+  local expected="${tmp_root}/.shogun/queue/reports"
+  run resolve_reports_dir "" "$tmp_root"
+  [ "$output" = "$expected" ]
 
   rm -rf "$tmp_root"
 }

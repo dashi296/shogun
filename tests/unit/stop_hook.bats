@@ -168,3 +168,24 @@ YAML
   [ "$status" -eq 0 ]
   [[ "$output" != *'"decision"'* ]]
 }
+
+@test "stop_hook: emits valid JSON-only output when reports are pending and inbox has unread" {
+  # reports 再通知（plain text）と block JSON が同時に発生するケース。
+  # stdout が混在すると Claude Code が block を解釈できないため、JSON 単独であることを検証する。
+  touch "$PENDING"
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/inbox"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/inbox/${ROLE}.yaml" <<'YAML'
+messages:
+  - status: unread
+    subject: test-unread
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  # stdout 全体が単一の有効な JSON であること（plain text 混在なら parse 失敗）
+  echo "$output" | node -e 'JSON.parse(require("fs").readFileSync(0,"utf8"))'
+  [[ "$output" == *'"decision":"block"'* ]]
+  # reports の情報は block の reason に畳み込まれ、失われていないこと
+  [[ "$output" == *"reports"* ]]
+  # pending マーカーは消費されている
+  [ ! -f "$PENDING" ]
+}

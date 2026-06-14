@@ -13,6 +13,10 @@ set -euo pipefail
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export NODE_PATH="${_SCRIPT_DIR}/../node_modules${NODE_PATH:+:$NODE_PATH}"
 
+# フラグ命名は scripts/flag_names.sh に集約（stop_hook.sh / mark_busy.sh /
+# inbox_watcher.sh と共通。SHOGUN_ROOT 由来キーで別リポジトリ間の衝突を防ぐ）。
+source "${_SCRIPT_DIR}/flag_names.sh"
+
 ROLE="${SHOGUN_ROLE:-}"
 ROOT="${SHOGUN_ROOT:-${CLAUDE_PROJECT_DIR:-$PWD}}"
 
@@ -40,7 +44,8 @@ fi
 # これがないと、起動直後でまだ一度も Stop していないエージェントは「フラグ無し = busy」と
 # 誤判定され、最初のタスク通知が wake ゲート（inbox_watcher の is_agent_idle）で skip される。
 # busy 化はターン開始時の mark_busy.sh（UserPromptSubmit フック）が担う。
-# フラグ名は stop_hook.sh / mark_busy.sh / inbox_watcher.sh の is_agent_idle と一致させる。
+# フラグ名は flag_names.sh の shogun_idle_flag に集約（stop_hook.sh / mark_busy.sh /
+# inbox_watcher.sh の is_agent_idle と一致）。
 # project_id の検証も stop_hook.sh と揃える（不正値ならフラグ操作をスキップ）。
 #
 # 例外: source=compact の継続ターンでは UserPromptSubmit(mark_busy) が走らないため、
@@ -53,10 +58,10 @@ if [[ "$HOOK_SOURCE" != "compact" ]]; then
   _PROJECT_ID="${SHOGUN_PROJECT_ID:-}"
   _INBOX=""
   if [[ -z "$_PROJECT_ID" ]]; then
-    touch "/tmp/shogun_idle_${ROLE}"
+    touch "$(shogun_idle_flag "$ROLE" "")"
     _INBOX="${ROOT}/.shogun/queue/inbox/${ROLE}.yaml"
   elif [[ "$_PROJECT_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
-    touch "/tmp/shogun_idle_${_PROJECT_ID}_${ROLE}"
+    touch "$(shogun_idle_flag "$ROLE" "$_PROJECT_ID")"
     _INBOX="${ROOT}/.shogun/queue/projects/${_PROJECT_ID}/inbox/${ROLE}.yaml"
   fi
 

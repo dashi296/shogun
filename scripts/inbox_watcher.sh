@@ -11,6 +11,10 @@ set -euo pipefail
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export NODE_PATH="${_SCRIPT_DIR}/../node_modules${NODE_PATH:+:$NODE_PATH}"
 
+# フラグ命名は scripts/flag_names.sh に集約（mark_busy.sh / stop_hook.sh /
+# inject_role.sh と共通。SHOGUN_ROOT 由来キーで別リポジトリ間の衝突を防ぐ）。
+source "${_SCRIPT_DIR}/flag_names.sh"
+
 # macOS: util-linux の flock を keg-only パスから補完（notify_pane の直列化で使う）
 if [[ "$(uname -s)" == "Darwin" ]]; then
   export PATH="/opt/homebrew/opt/util-linux/bin:${PATH}"
@@ -90,14 +94,9 @@ process.stdout.write(String(msgs.length) + "\n" + subject);
 }
 
 # reports pending マーカーのパスを返す（busy 中にスキップした report 通知の記録用）。
-# マーカー名は stop_hook.sh の reports 再通知ロジックと一致させること。
+# 命名は flag_names.sh の shogun_reports_pending_flag に集約（stop_hook.sh と一致）。
 reports_pending_flag() {
-  local agent="$1" project_id="$2"
-  if [[ -n "$project_id" ]]; then
-    echo "/tmp/shogun_reports_pending_${project_id}_${agent}"
-  else
-    echo "/tmp/shogun_reports_pending_${agent}"
-  fi
+  shogun_reports_pending_flag "$1" "$2"
 }
 
 # reports/ の更新を検知したときペインへ通知する（inbox_write 漏れに対する安全網）
@@ -130,11 +129,7 @@ wake_up_reports() {
 # 戻り値: idle なら 0（つつき可）、busy なら 1（スキップ）
 is_agent_idle() {
   local agent="$1" project_id="$2"
-  if [[ -n "$project_id" ]]; then
-    [[ -f "/tmp/shogun_idle_${project_id}_${agent}" ]]
-  else
-    [[ -f "/tmp/shogun_idle_${agent}" ]]
-  fi
+  [[ -f "$(shogun_idle_flag "$agent" "$project_id")" ]]
 }
 
 # フェーズ1: 催促メッセージ（nudge）

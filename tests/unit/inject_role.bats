@@ -7,6 +7,8 @@ setup() {
   TEST_PROJECT="$(mktemp -d)"
   export TEST_PROJECT
   export SHOGUN_ROOT="${TEST_PROJECT}"
+  # フラグ命名を被テストスクリプトと共有するため flag_names.sh を source する。
+  source "${SHOGUN_REPO}/scripts/flag_names.sh"
   mkdir -p "${TEST_PROJECT}/.shogun/instructions"
   # マーカー入りのフィクスチャを用意
   printf '# Shogun 共通設定\nSHOGUN_COMMON_MARKER\n' > "${TEST_PROJECT}/.shogun/CLAUDE.md"
@@ -63,24 +65,27 @@ if (d.hookSpecificOutput.hookEventName !== "SessionStart") process.exit(1);
 # busy 化はターン開始時の mark_busy.sh（UserPromptSubmit）が担う。
 
 @test "inject_role: sets the idle flag" {
-  local role="injidletest_$$"
-  rm -f "/tmp/shogun_idle_${role}"
+  local role="injidletest_$$" idle
+  idle="$(shogun_idle_flag "$role" "")"
+  rm -f "$idle"
   export SHOGUN_ROLE="$role"
   run bash "${SHOGUN_REPO}/scripts/inject_role.sh"
   [ "$status" -eq 0 ]
-  [ -f "/tmp/shogun_idle_${role}" ]
-  rm -f "/tmp/shogun_idle_${role}"
+  [ -f "$idle" ]
+  rm -f "$idle"
 }
 
 @test "inject_role: sets a project-specific idle flag when SHOGUN_PROJECT_ID is set" {
-  local role="injidletest_$$" proj="injidleproj_$$"
-  rm -f "/tmp/shogun_idle_${proj}_${role}" "/tmp/shogun_idle_${role}"
+  local role="injidletest_$$" proj="injidleproj_$$" idle idle_proj
+  idle="$(shogun_idle_flag "$role" "")"
+  idle_proj="$(shogun_idle_flag "$role" "$proj")"
+  rm -f "$idle_proj" "$idle"
   export SHOGUN_ROLE="$role" SHOGUN_PROJECT_ID="$proj"
   run bash "${SHOGUN_REPO}/scripts/inject_role.sh"
   [ "$status" -eq 0 ]
-  [ -f "/tmp/shogun_idle_${proj}_${role}" ]
-  [ ! -f "/tmp/shogun_idle_${role}" ]
-  rm -f "/tmp/shogun_idle_${proj}_${role}"
+  [ -f "$idle_proj" ]
+  [ ! -f "$idle" ]
+  rm -f "$idle_proj"
 }
 
 # --- コールドスタート時の inbox 未読サーフェス ---
@@ -129,7 +134,7 @@ YAML
   run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"startup"}'
   [ "$status" -eq 0 ]
   ctx="$(echo "$output" | _additional_context)"
-  rm -f "/tmp/shogun_idle_${proj}_taisho"   # cleanup はアサーションより前に（失敗をマスクしないため）
+  rm -f "$(shogun_idle_flag "taisho" "$proj")"   # cleanup はアサーションより前に（失敗をマスクしないため）
   [[ "$ctx" == *"未読"* ]]
 }
 
@@ -154,13 +159,13 @@ YAML
 
 @test "inject_role: does NOT set the idle flag when source=compact (busy preserved)" {
   local role="injcompacttest_$$"
-  rm -f "/tmp/shogun_idle_${role}"          # busy 状態を模す（フラグ無し）
+  rm -f "$(shogun_idle_flag "$role" "")"          # busy 状態を模す（フラグ無し）
   export SHOGUN_ROLE="$role"
   run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"compact"}'
   [ "$status" -eq 0 ]
   # compact では idle フラグを立てない（busy のまま）
-  [ ! -f "/tmp/shogun_idle_${role}" ]
-  rm -f "/tmp/shogun_idle_${role}"
+  [ ! -f "$(shogun_idle_flag "$role" "")" ]
+  rm -f "$(shogun_idle_flag "$role" "")"
 }
 
 @test "inject_role: still injects role context when source=compact" {
@@ -174,33 +179,33 @@ YAML
 
 @test "inject_role: keeps an existing idle flag during compact (idle preserved)" {
   local role="injcompacttest_$$"
-  touch "/tmp/shogun_idle_${role}"          # 直前は idle
+  touch "$(shogun_idle_flag "$role" "")"          # 直前は idle
   export SHOGUN_ROLE="$role"
   run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"compact"}'
   [ "$status" -eq 0 ]
   # compact ではフラグに触れず idle を維持する
-  [ -f "/tmp/shogun_idle_${role}" ]
-  rm -f "/tmp/shogun_idle_${role}"
+  [ -f "$(shogun_idle_flag "$role" "")" ]
+  rm -f "$(shogun_idle_flag "$role" "")"
 }
 
 @test "inject_role: sets the idle flag when source=startup" {
   local role="injstartuptest_$$"
-  rm -f "/tmp/shogun_idle_${role}"
+  rm -f "$(shogun_idle_flag "$role" "")"
   export SHOGUN_ROLE="$role"
   run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"startup"}'
   [ "$status" -eq 0 ]
-  [ -f "/tmp/shogun_idle_${role}" ]
-  rm -f "/tmp/shogun_idle_${role}"
+  [ -f "$(shogun_idle_flag "$role" "")" ]
+  rm -f "$(shogun_idle_flag "$role" "")"
 }
 
 @test "inject_role: does NOT set a project-specific idle flag when source=compact" {
   local role="injcompacttest_$$" proj="injcompactproj_$$"
-  rm -f "/tmp/shogun_idle_${proj}_${role}"
+  rm -f "$(shogun_idle_flag "$role" "$proj")"
   export SHOGUN_ROLE="$role" SHOGUN_PROJECT_ID="$proj"
   run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"compact"}'
   [ "$status" -eq 0 ]
-  [ ! -f "/tmp/shogun_idle_${proj}_${role}" ]
-  rm -f "/tmp/shogun_idle_${proj}_${role}"
+  [ ! -f "$(shogun_idle_flag "$role" "$proj")" ]
+  rm -f "$(shogun_idle_flag "$role" "$proj")"
 }
 
 @test "inject_role: additionalContext includes the common CLAUDE.md" {

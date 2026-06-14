@@ -175,7 +175,7 @@ messages:
   - status: unread
     subject: hi
 YAML
-  rm -f "/tmp/shogun_idle_${AGENT_ID}"   # busy
+  rm -f "$(shogun_idle_flag "$AGENT_ID" "")"   # busy
 
   local log; log="$(mktemp)"
   tmux() { printf '%s\n' "$*" >> "$log"; }
@@ -201,7 +201,7 @@ messages:
   - status: unread
     subject: hi
 YAML
-  touch "/tmp/shogun_idle_${AGENT_ID}"   # idle
+  touch "$(shogun_idle_flag "$AGENT_ID" "")"   # idle
 
   local log; log="$(mktemp)"
   tmux() { printf '%s\n' "$*" >> "$log"; }
@@ -210,7 +210,7 @@ YAML
   wake_up_inbox
 
   run cat "$log"
-  rm -rf "$tmp"; rm -f "$log" "/tmp/shogun_idle_${AGENT_ID}"
+  rm -rf "$tmp"; rm -f "$log" "$(shogun_idle_flag "$AGENT_ID" "")"
   # idle なので通知が送られる（tmux が呼ばれる）
   [ -n "$output" ]
 }
@@ -219,7 +219,7 @@ YAML
   AGENT_ID="wakegatetest_$$"
   PANE="testpane"
   SHOGUN_PROJECT_ID=""
-  rm -f "/tmp/shogun_idle_${AGENT_ID}" "/tmp/shogun_reports_pending_${AGENT_ID}"   # busy
+  rm -f "$(shogun_idle_flag "$AGENT_ID" "")" "$(shogun_reports_pending_flag "$AGENT_ID" "")"   # busy
 
   local log; log="$(mktemp)"
   tmux() { printf '%s\n' "$*" >> "$log"; }
@@ -228,7 +228,7 @@ YAML
   wake_up_reports
 
   run cat "$log"
-  rm -f "$log" "/tmp/shogun_reports_pending_${AGENT_ID}"
+  rm -f "$log" "$(shogun_reports_pending_flag "$AGENT_ID" "")"
   [ -z "$output" ]
 }
 
@@ -238,7 +238,7 @@ YAML
   AGENT_ID="wakegatetest_$$"
   PANE="testpane"
   SHOGUN_PROJECT_ID=""
-  rm -f "/tmp/shogun_idle_${AGENT_ID}" "/tmp/shogun_reports_pending_${AGENT_ID}"   # busy
+  rm -f "$(shogun_idle_flag "$AGENT_ID" "")" "$(shogun_reports_pending_flag "$AGENT_ID" "")"   # busy
 
   tmux() { :; }
   sleep() { :; }
@@ -246,8 +246,8 @@ YAML
   wake_up_reports
 
   local exists=1
-  [ -f "/tmp/shogun_reports_pending_${AGENT_ID}" ] && exists=0
-  rm -f "/tmp/shogun_reports_pending_${AGENT_ID}"
+  [ -f "$(shogun_reports_pending_flag "$AGENT_ID" "")" ] && exists=0
+  rm -f "$(shogun_reports_pending_flag "$AGENT_ID" "")"
   [ "$exists" -eq 0 ]
 }
 
@@ -255,8 +255,8 @@ YAML
   AGENT_ID="wakegatetest_$$"
   PANE="testpane"
   SHOGUN_PROJECT_ID="wakeproj_$$"
-  rm -f "/tmp/shogun_idle_${SHOGUN_PROJECT_ID}_${AGENT_ID}" \
-        "/tmp/shogun_reports_pending_${SHOGUN_PROJECT_ID}_${AGENT_ID}"   # busy
+  rm -f "$(shogun_idle_flag "$AGENT_ID" "$SHOGUN_PROJECT_ID")" \
+        "$(shogun_reports_pending_flag "$AGENT_ID" "$SHOGUN_PROJECT_ID")"   # busy
 
   tmux() { :; }
   sleep() { :; }
@@ -264,8 +264,8 @@ YAML
   wake_up_reports
 
   local exists=1
-  [ -f "/tmp/shogun_reports_pending_${SHOGUN_PROJECT_ID}_${AGENT_ID}" ] && exists=0
-  rm -f "/tmp/shogun_reports_pending_${SHOGUN_PROJECT_ID}_${AGENT_ID}"
+  [ -f "$(shogun_reports_pending_flag "$AGENT_ID" "$SHOGUN_PROJECT_ID")" ] && exists=0
+  rm -f "$(shogun_reports_pending_flag "$AGENT_ID" "$SHOGUN_PROJECT_ID")"
   SHOGUN_PROJECT_ID=""
   [ "$exists" -eq 0 ]
 }
@@ -274,7 +274,7 @@ YAML
   AGENT_ID="wakegatetest_$$"
   PANE="testpane"
   SHOGUN_PROJECT_ID=""
-  touch "/tmp/shogun_idle_${AGENT_ID}"   # idle
+  touch "$(shogun_idle_flag "$AGENT_ID" "")"   # idle
 
   local log; log="$(mktemp)"
   tmux() { printf '%s\n' "$*" >> "$log"; }
@@ -283,7 +283,7 @@ YAML
   wake_up_reports
 
   run cat "$log"
-  rm -f "$log" "/tmp/shogun_idle_${AGENT_ID}"
+  rm -f "$log" "$(shogun_idle_flag "$AGENT_ID" "")"
   [ -n "$output" ]
 }
 
@@ -293,8 +293,8 @@ YAML
   AGENT_ID="wakegatetest_$$"
   PANE="testpane"
   SHOGUN_PROJECT_ID=""
-  touch "/tmp/shogun_idle_${AGENT_ID}"                       # idle
-  touch "/tmp/shogun_reports_pending_${AGENT_ID}"            # 以前 busy 中に立った残骸
+  touch "$(shogun_idle_flag "$AGENT_ID" "")"                       # idle
+  touch "$(shogun_reports_pending_flag "$AGENT_ID" "")"            # 以前 busy 中に立った残骸
 
   tmux() { :; }
   sleep() { :; }
@@ -302,8 +302,8 @@ YAML
   wake_up_reports
 
   local still=1
-  [ -f "/tmp/shogun_reports_pending_${AGENT_ID}" ] && still=0
-  rm -f "/tmp/shogun_idle_${AGENT_ID}" "/tmp/shogun_reports_pending_${AGENT_ID}"
+  [ -f "$(shogun_reports_pending_flag "$AGENT_ID" "")" ] && still=0
+  rm -f "$(shogun_idle_flag "$AGENT_ID" "")" "$(shogun_reports_pending_flag "$AGENT_ID" "")"
   # マーカーは消えている（still=1 のまま = ファイル無し）
   [ "$still" -eq 1 ]
 }
@@ -476,33 +476,33 @@ YAML
 
 @test "is_agent_idle: returns 0 (idle) when flag exists" {
   local agent="idletest_$$"
-  touch "/tmp/shogun_idle_${agent}"
+  touch "$(shogun_idle_flag "$agent" "")"
   run is_agent_idle "$agent" ""
-  rm -f "/tmp/shogun_idle_${agent}"
+  rm -f "$(shogun_idle_flag "$agent" "")"
   [ "$status" -eq 0 ]
 }
 
 @test "is_agent_idle: returns 1 (busy) when flag is absent" {
   local agent="idletest_$$"
-  rm -f "/tmp/shogun_idle_${agent}"
+  rm -f "$(shogun_idle_flag "$agent" "")"
   run is_agent_idle "$agent" ""
   [ "$status" -ne 0 ]
 }
 
 @test "is_agent_idle: uses project-specific flag when project_id is set" {
   local agent="idletest_$$" proj="idleproj_$$"
-  touch "/tmp/shogun_idle_${proj}_${agent}"
+  touch "$(shogun_idle_flag "$agent" "$proj")"
   run is_agent_idle "$agent" "$proj"
-  rm -f "/tmp/shogun_idle_${proj}_${agent}"
+  rm -f "$(shogun_idle_flag "$agent" "$proj")"
   [ "$status" -eq 0 ]
 }
 
 @test "is_agent_idle: project flag does not satisfy the no-project check" {
   # project 別フラグだけがある場合、project_id 未指定の判定では busy(1) になる
   local agent="idletest_$$" proj="idleproj_$$"
-  touch "/tmp/shogun_idle_${proj}_${agent}"
+  touch "$(shogun_idle_flag "$agent" "$proj")"
   run is_agent_idle "$agent" ""
-  rm -f "/tmp/shogun_idle_${proj}_${agent}"
+  rm -f "$(shogun_idle_flag "$agent" "$proj")"
   [ "$status" -ne 0 ]
 }
 

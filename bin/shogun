@@ -500,6 +500,7 @@ _set_pane_role_label() {
   color=$(_role_color "$role")
   tmux set-option -p -t "$pane_id" @shogun_role "$role" 2>/dev/null || true
   tmux set-option -p -t "$pane_id" @shogun_color "$color" 2>/dev/null || true
+  tmux set-option -p -t "$pane_id" @agent_id "$role" 2>/dev/null || true
   tmux select-pane -t "$pane_id" -T "${role}: 待機中" 2>/dev/null || true
 }
 

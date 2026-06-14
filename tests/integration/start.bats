@@ -156,6 +156,33 @@ STUB
   [ "$status" -eq 0 ]
 }
 
+@test "start: sets @agent_id pane option for taisho" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+
+  run grep "set-option -p.*@agent_id taisho" "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+}
+
+@test "start: sets @agent_id pane option for each agent" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+
+  run grep "set-option -p.*@agent_id karo" "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+
+  run grep "set-option -p.*@agent_id gunshi" "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+
+  run grep "set-option -p.*@agent_id metsuke" "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+
+  run grep "set-option -p.*@agent_id ashigaru1" "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+}
+
 # ── Agent Self-Watch（ASW）環境変数の配線テスト ──
 
 @test "start: passes SHOGUN_ASW_ENABLED=false to taisho watcher by default" {

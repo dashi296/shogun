@@ -7,6 +7,8 @@ setup() {
   TEST_PROJECT="$(mktemp -d)"
   export TEST_PROJECT
   export SHOGUN_ROOT="${TEST_PROJECT}"
+  # フラグ命名を被テストスクリプトと共有するため flag_names.sh を source する。
+  source "${SHOGUN_REPO}/scripts/flag_names.sh"
   mkdir -p "${TEST_PROJECT}/.shogun/instructions"
   # マーカー入りのフィクスチャを用意
   printf '# Shogun 共通設定\nSHOGUN_COMMON_MARKER\n' > "${TEST_PROJECT}/.shogun/CLAUDE.md"
@@ -55,6 +57,155 @@ if (d.hookSpecificOutput.hookEventName !== "SessionStart") process.exit(1);
   run bash "${SHOGUN_REPO}/scripts/inject_role.sh"
   ctx="$(echo "$output" | _additional_context)"
   [[ "$ctx" == *"TAISHO_ROLE_MARKER"* ]]
+}
+
+# --- idle フラグ（コールドスタート対応） ---
+# 起動直後はプロンプト待ち = idle なので idle フラグを立てる。
+# これにより最初のタスク通知が wake ゲートで skip されない。
+# busy 化はターン開始時の mark_busy.sh（UserPromptSubmit）が担う。
+
+@test "inject_role: sets the idle flag" {
+  local role="injidletest_$$" idle
+  idle="$(shogun_idle_flag "$role" "")"
+  rm -f "$idle"
+  export SHOGUN_ROLE="$role"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh"
+  [ "$status" -eq 0 ]
+  [ -f "$idle" ]
+  rm -f "$idle"
+}
+
+@test "inject_role: sets a project-specific idle flag when SHOGUN_PROJECT_ID is set" {
+  local role="injidletest_$$" proj="injidleproj_$$" idle idle_proj
+  idle="$(shogun_idle_flag "$role" "")"
+  idle_proj="$(shogun_idle_flag "$role" "$proj")"
+  rm -f "$idle_proj" "$idle"
+  export SHOGUN_ROLE="$role" SHOGUN_PROJECT_ID="$proj"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh"
+  [ "$status" -eq 0 ]
+  [ -f "$idle_proj" ]
+  [ ! -f "$idle" ]
+  rm -f "$idle_proj"
+}
+
+# --- コールドスタート時の inbox 未読サーフェス ---
+# watcher は claude より先に起動するため、SessionStart が idle フラグを作る前に
+# inbox が更新されると wake_up_inbox が busy 判定で通知を捨てる。起動直後はまだ Stop も
+# 走らず回収経路が無いため、idle 化する SessionStart で inbox 未読を additionalContext に
+# 載せて初回タスクの取りこぼしを防ぐ（2 回目以降は Stop フックが毎ターン再提示する）。
+
+@test "inject_role: surfaces inbox unread in additionalContext on cold start" {
+  mkdir -p "${TEST_PROJECT}/.shogun/queue/inbox"
+  cat > "${TEST_PROJECT}/.shogun/queue/inbox/taisho.yaml" <<'YAML'
+messages:
+  - status: unread
+    subject: first-task
+YAML
+  export SHOGUN_ROLE="taisho"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"startup"}'
+  [ "$status" -eq 0 ]
+  ctx="$(echo "$output" | _additional_context)"
+  [[ "$ctx" == *"未読"* ]]
+}
+
+@test "inject_role: no inbox notice when there are no unread messages" {
+  mkdir -p "${TEST_PROJECT}/.shogun/queue/inbox"
+  cat > "${TEST_PROJECT}/.shogun/queue/inbox/taisho.yaml" <<'YAML'
+messages:
+  - status: read
+    subject: done
+YAML
+  export SHOGUN_ROLE="taisho"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"startup"}'
+  [ "$status" -eq 0 ]
+  ctx="$(echo "$output" | _additional_context)"
+  [[ "$ctx" != *"未読"* ]]
+}
+
+@test "inject_role: surfaces project-specific inbox unread on cold start" {
+  local proj="injinboxproj_$$"
+  mkdir -p "${TEST_PROJECT}/.shogun/queue/projects/${proj}/inbox"
+  cat > "${TEST_PROJECT}/.shogun/queue/projects/${proj}/inbox/taisho.yaml" <<'YAML'
+messages:
+  - status: unread
+    subject: first-task
+YAML
+  export SHOGUN_ROLE="taisho" SHOGUN_PROJECT_ID="$proj"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"startup"}'
+  [ "$status" -eq 0 ]
+  ctx="$(echo "$output" | _additional_context)"
+  rm -f "$(shogun_idle_flag "taisho" "$proj")"   # cleanup はアサーションより前に（失敗をマスクしないため）
+  [[ "$ctx" == *"未読"* ]]
+}
+
+@test "inject_role: does NOT surface inbox unread during compact (busy, no interruption)" {
+  mkdir -p "${TEST_PROJECT}/.shogun/queue/inbox"
+  cat > "${TEST_PROJECT}/.shogun/queue/inbox/taisho.yaml" <<'YAML'
+messages:
+  - status: unread
+    subject: mid-work
+YAML
+  export SHOGUN_ROLE="taisho"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"compact"}'
+  [ "$status" -eq 0 ]
+  ctx="$(echo "$output" | _additional_context)"
+  [[ "$ctx" != *"未読"* ]]
+}
+
+# --- source=compact では idle フラグを操作しない（busy 中の出力破損を防ぐ） ---
+# compact 継続ターンでは UserPromptSubmit(mark_busy) が走らず、ここで idle フラグを
+# 立てると作業中(busy)のまま idle と誤判定され、busy ペインへの send-keys 注入が再発する。
+# そのため source=compact では touch せず、直前の busy/idle 状態を維持する。
+
+@test "inject_role: does NOT set the idle flag when source=compact (busy preserved)" {
+  local role="injcompacttest_$$"
+  rm -f "$(shogun_idle_flag "$role" "")"          # busy 状態を模す（フラグ無し）
+  export SHOGUN_ROLE="$role"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"compact"}'
+  [ "$status" -eq 0 ]
+  # compact では idle フラグを立てない（busy のまま）
+  [ ! -f "$(shogun_idle_flag "$role" "")" ]
+  rm -f "$(shogun_idle_flag "$role" "")"
+}
+
+@test "inject_role: still injects role context when source=compact" {
+  export SHOGUN_ROLE="taisho"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"compact"}'
+  [ "$status" -eq 0 ]
+  # compact でも役職コンテキストの注入は従来どおり行う
+  ctx="$(echo "$output" | _additional_context)"
+  [[ "$ctx" == *"TAISHO_ROLE_MARKER"* ]]
+}
+
+@test "inject_role: keeps an existing idle flag during compact (idle preserved)" {
+  local role="injcompacttest_$$"
+  touch "$(shogun_idle_flag "$role" "")"          # 直前は idle
+  export SHOGUN_ROLE="$role"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"compact"}'
+  [ "$status" -eq 0 ]
+  # compact ではフラグに触れず idle を維持する
+  [ -f "$(shogun_idle_flag "$role" "")" ]
+  rm -f "$(shogun_idle_flag "$role" "")"
+}
+
+@test "inject_role: sets the idle flag when source=startup" {
+  local role="injstartuptest_$$"
+  rm -f "$(shogun_idle_flag "$role" "")"
+  export SHOGUN_ROLE="$role"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"startup"}'
+  [ "$status" -eq 0 ]
+  [ -f "$(shogun_idle_flag "$role" "")" ]
+  rm -f "$(shogun_idle_flag "$role" "")"
+}
+
+@test "inject_role: does NOT set a project-specific idle flag when source=compact" {
+  local role="injcompacttest_$$" proj="injcompactproj_$$"
+  rm -f "$(shogun_idle_flag "$role" "$proj")"
+  export SHOGUN_ROLE="$role" SHOGUN_PROJECT_ID="$proj"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"compact"}'
+  [ "$status" -eq 0 ]
+  [ ! -f "$(shogun_idle_flag "$role" "$proj")" ]
+  rm -f "$(shogun_idle_flag "$role" "$proj")"
 }
 
 @test "inject_role: additionalContext includes the common CLAUDE.md" {

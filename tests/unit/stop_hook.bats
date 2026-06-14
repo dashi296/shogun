@@ -2,20 +2,28 @@
 # stop_hook.sh の bats テスト
 # ターン完了時の idle フラグ作成・project_id 分岐・inbox 未読通知を検証する
 
+load '../test_helper'
+
 setup() {
   _SCRIPT_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../../scripts" && pwd)"
   TMP_ROOT="$(mktemp -d)"
   export SHOGUN_ROOT="$TMP_ROOT"
+  # フラグ命名を被テストスクリプトと共有するため flag_names.sh を source する。
+  source "${SHOGUN_REPO}/scripts/flag_names.sh"
   # テスト固有の role 名を使い、/tmp のフラグ衝突を避ける
   ROLE="stophooktest"
   PROJ="stophookproj"
-  rm -f "/tmp/shogun_idle_${ROLE}" "/tmp/shogun_idle_${PROJ}_${ROLE}"
+  IDLE="$(shogun_idle_flag "$ROLE" "")"
+  IDLE_PROJ="$(shogun_idle_flag "$ROLE" "$PROJ")"
+  PENDING="$(shogun_reports_pending_flag "$ROLE" "")"
+  PENDING_PROJ="$(shogun_reports_pending_flag "$ROLE" "$PROJ")"
+  rm -f "$IDLE" "$IDLE_PROJ" "$PENDING" "$PENDING_PROJ"
 }
 
 teardown() {
   rm -rf "$TMP_ROOT"
-  rm -f "/tmp/shogun_idle_${ROLE}" "/tmp/shogun_idle_${PROJ}_${ROLE}"
-  unset SHOGUN_ROLE SHOGUN_PROJECT_ID
+  rm -f "$IDLE" "$IDLE_PROJ" "$PENDING" "$PENDING_PROJ"
+  unset SHOGUN_ROLE SHOGUN_PROJECT_ID SHOGUN_ROOT
 }
 
 # 注: @test 名は ASCII（英語）で記述する。macOS 標準の bash 3.2 では bats が
@@ -23,14 +31,14 @@ teardown() {
 @test "stop_hook: creates the idle flag" {
   SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh"
   [ "$status" -eq 0 ]
-  [ -f "/tmp/shogun_idle_${ROLE}" ]
+  [ -f "$IDLE" ]
 }
 
 @test "stop_hook: creates a project-specific flag when SHOGUN_PROJECT_ID is set" {
   SHOGUN_ROLE="$ROLE" SHOGUN_PROJECT_ID="$PROJ" run bash "${_SCRIPT_DIR}/stop_hook.sh"
   [ "$status" -eq 0 ]
-  [ -f "/tmp/shogun_idle_${PROJ}_${ROLE}" ]
-  [ ! -f "/tmp/shogun_idle_${ROLE}" ]
+  [ -f "$IDLE_PROJ" ]
+  [ ! -f "$IDLE" ]
 }
 
 @test "stop_hook: exits 0 with no output when SHOGUN_ROLE is unset" {
@@ -52,8 +60,8 @@ teardown() {
   [ "$status" -eq 0 ]
   [ -z "$output" ]
   # 不正な project_id ではフラグ名・inbox パスへ展開せず、何も作らない
-  [ ! -f "/tmp/shogun_idle_../../evil_${ROLE}" ]
-  [ ! -f "/tmp/shogun_idle_${ROLE}" ]
+  [ ! -f "$IDLE" ]
+  [ ! -f "$IDLE_PROJ" ]
 }
 
 @test "stop_hook: prints a message when the inbox has unread messages" {
@@ -67,7 +75,7 @@ YAML
   [ "$status" -eq 0 ]
   # 未読があれば通知メッセージが stdout に出る（出力が非空であることで検証）
   [ -n "$output" ]
-  [ -f "/tmp/shogun_idle_${ROLE}" ]
+  [ -f "$IDLE" ]
 }
 
 @test "stop_hook: prints nothing when the inbox has no unread messages" {
@@ -80,12 +88,41 @@ YAML
   SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
-  [ -f "/tmp/shogun_idle_${ROLE}" ]
+  [ -f "$IDLE" ]
 }
 
 @test "stop_hook: exits safely and still creates the flag when the inbox file is missing" {
   SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
-  [ -f "/tmp/shogun_idle_${ROLE}" ]
+  [ -f "$IDLE" ]
+}
+
+# ────────────────────────────────────────────────────────────
+# reports 安全網: inbox_watcher が busy 中にスキップした report 通知を
+# idle 復帰時（Stop フック）に再提示し、pending マーカーを消費する。
+# ────────────────────────────────────────────────────────────
+
+@test "stop_hook: re-notifies and clears the reports pending marker" {
+  touch "$PENDING"
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh"
+  [ "$status" -eq 0 ]
+  # reports の再通知メッセージが stdout に出る
+  [[ "$output" == *"reports"* ]]
+  # 消費済みマーカーは削除されている（次ターンで再提示しない）
+  [ ! -f "$PENDING" ]
+}
+
+@test "stop_hook: consumes a project-specific reports pending marker" {
+  touch "$PENDING_PROJ"
+  SHOGUN_ROLE="$ROLE" SHOGUN_PROJECT_ID="$PROJ" run bash "${_SCRIPT_DIR}/stop_hook.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"reports"* ]]
+  [ ! -f "$PENDING_PROJ" ]
+}
+
+@test "stop_hook: prints nothing about reports when there is no pending marker" {
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"reports"* ]]
 }

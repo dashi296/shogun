@@ -130,6 +130,184 @@ setup() {
   [ "${lines[1]}" = "send-keys -t mypane Enter" ]
 }
 
+# notify_pane はペイン単位の flock を保持して送出を直列化する。
+# 並行する watcher（inbox / reports / ASW）が本文と Enter の隙間に割り込み、
+# send-keys が混線して行が多重化するのを防ぐ。
+# クリティカルセクション内（本文送信時）に外部から同じロックを non-blocking で
+# 取得しようとすると失敗する（=ロック保持中）ことで直列化を検証する。
+@test "notify_pane: holds a per-pane flock while sending" {
+  local lockfile="/tmp/shogun_send_testpane.lock"
+  local result; result="$(mktemp)"
+  rm -f "$lockfile"
+
+  sleep() { :; }
+  tmux() {
+    if [[ "$*" == *"本文"* ]]; then
+      # クリティカルセクション内：別 fd で同じロックを non-blocking 取得
+      if flock -n 8; then echo "acquired" > "$result"; else echo "blocked" > "$result"; fi 8>"$lockfile"
+    fi
+  }
+
+  notify_pane "testpane" "本文メッセージ"
+
+  run cat "$result"
+  rm -f "$result" "$lockfile"
+  [ "$output" = "blocked" ]
+}
+
+# ────────────────────────────────────────────────────────────
+# wake_up_inbox / wake_up_reports: busy 中は送らない（idle ゲート）
+#
+# Claude が作業中（busy = idle フラグ無し）のときに send-keys を撃つと、
+# ヒアドキュメント実行中・描画中のペインへ注入され出力が破損する。
+# idle（Stop フックが立てたフラグ有り）のときだけ通知する。
+# ────────────────────────────────────────────────────────────
+
+@test "wake_up_inbox: does NOT send when the agent is busy" {
+  local tmp; tmp="$(mktemp -d)"
+  AGENT_ID="wakegatetest_$$"
+  PANE="testpane"
+  ROOT="$tmp"
+  INBOX="${tmp}/inbox.yaml"
+  SHOGUN_PROJECT_ID=""
+  cat > "$INBOX" <<'YAML'
+messages:
+  - status: unread
+    subject: hi
+YAML
+  rm -f "$(shogun_idle_flag "$AGENT_ID" "")"   # busy
+
+  local log; log="$(mktemp)"
+  tmux() { printf '%s\n' "$*" >> "$log"; }
+  sleep() { :; }
+
+  wake_up_inbox
+
+  run cat "$log"
+  rm -rf "$tmp"; rm -f "$log"
+  # busy のため tmux は一切呼ばれない
+  [ -z "$output" ]
+}
+
+@test "wake_up_inbox: sends when the agent is idle and there is unread" {
+  local tmp; tmp="$(mktemp -d)"
+  AGENT_ID="wakegatetest_$$"
+  PANE="testpane"
+  ROOT="$tmp"
+  INBOX="${tmp}/inbox.yaml"
+  SHOGUN_PROJECT_ID=""
+  cat > "$INBOX" <<'YAML'
+messages:
+  - status: unread
+    subject: hi
+YAML
+  touch "$(shogun_idle_flag "$AGENT_ID" "")"   # idle
+
+  local log; log="$(mktemp)"
+  tmux() { printf '%s\n' "$*" >> "$log"; }
+  sleep() { :; }
+
+  wake_up_inbox
+
+  run cat "$log"
+  rm -rf "$tmp"; rm -f "$log" "$(shogun_idle_flag "$AGENT_ID" "")"
+  # idle なので通知が送られる（tmux が呼ばれる）
+  [ -n "$output" ]
+}
+
+@test "wake_up_reports: does NOT send when the agent is busy" {
+  AGENT_ID="wakegatetest_$$"
+  PANE="testpane"
+  SHOGUN_PROJECT_ID=""
+  rm -f "$(shogun_idle_flag "$AGENT_ID" "")" "$(shogun_reports_pending_flag "$AGENT_ID" "")"   # busy
+
+  local log; log="$(mktemp)"
+  tmux() { printf '%s\n' "$*" >> "$log"; }
+  sleep() { :; }
+
+  wake_up_reports
+
+  run cat "$log"
+  rm -f "$log" "$(shogun_reports_pending_flag "$AGENT_ID" "")"
+  [ -z "$output" ]
+}
+
+# busy 中にスキップした report 通知は pending マーカーへ記録し、Stop フックが
+# idle 復帰時に再通知できるようにする（次の更新イベントが来なくても取りこぼさない）。
+@test "wake_up_reports: marks pending when the agent is busy" {
+  AGENT_ID="wakegatetest_$$"
+  PANE="testpane"
+  SHOGUN_PROJECT_ID=""
+  rm -f "$(shogun_idle_flag "$AGENT_ID" "")" "$(shogun_reports_pending_flag "$AGENT_ID" "")"   # busy
+
+  tmux() { :; }
+  sleep() { :; }
+
+  wake_up_reports
+
+  local exists=1
+  [ -f "$(shogun_reports_pending_flag "$AGENT_ID" "")" ] && exists=0
+  rm -f "$(shogun_reports_pending_flag "$AGENT_ID" "")"
+  [ "$exists" -eq 0 ]
+}
+
+@test "wake_up_reports: uses a project-specific pending marker when project_id is set" {
+  AGENT_ID="wakegatetest_$$"
+  PANE="testpane"
+  SHOGUN_PROJECT_ID="wakeproj_$$"
+  rm -f "$(shogun_idle_flag "$AGENT_ID" "$SHOGUN_PROJECT_ID")" \
+        "$(shogun_reports_pending_flag "$AGENT_ID" "$SHOGUN_PROJECT_ID")"   # busy
+
+  tmux() { :; }
+  sleep() { :; }
+
+  wake_up_reports
+
+  local exists=1
+  [ -f "$(shogun_reports_pending_flag "$AGENT_ID" "$SHOGUN_PROJECT_ID")" ] && exists=0
+  rm -f "$(shogun_reports_pending_flag "$AGENT_ID" "$SHOGUN_PROJECT_ID")"
+  SHOGUN_PROJECT_ID=""
+  [ "$exists" -eq 0 ]
+}
+
+@test "wake_up_reports: sends when the agent is idle" {
+  AGENT_ID="wakegatetest_$$"
+  PANE="testpane"
+  SHOGUN_PROJECT_ID=""
+  touch "$(shogun_idle_flag "$AGENT_ID" "")"   # idle
+
+  local log; log="$(mktemp)"
+  tmux() { printf '%s\n' "$*" >> "$log"; }
+  sleep() { :; }
+
+  wake_up_reports
+
+  run cat "$log"
+  rm -f "$log" "$(shogun_idle_flag "$AGENT_ID" "")"
+  [ -n "$output" ]
+}
+
+# idle 復帰後に直接通知できたときは、残っている pending マーカーを掃除して
+# Stop フックによる二重通知を避ける。
+@test "wake_up_reports: clears a stale pending marker when sending while idle" {
+  AGENT_ID="wakegatetest_$$"
+  PANE="testpane"
+  SHOGUN_PROJECT_ID=""
+  touch "$(shogun_idle_flag "$AGENT_ID" "")"                       # idle
+  touch "$(shogun_reports_pending_flag "$AGENT_ID" "")"            # 以前 busy 中に立った残骸
+
+  tmux() { :; }
+  sleep() { :; }
+
+  wake_up_reports
+
+  local still=1
+  [ -f "$(shogun_reports_pending_flag "$AGENT_ID" "")" ] && still=0
+  rm -f "$(shogun_idle_flag "$AGENT_ID" "")" "$(shogun_reports_pending_flag "$AGENT_ID" "")"
+  # マーカーは消えている（still=1 のまま = ファイル無し）
+  [ "$still" -eq 1 ]
+}
+
 # ────────────────────────────────────────────────────────────
 # get_escalation_phase: 経過時間からフェーズを判定する純粋関数
 # ────────────────────────────────────────────────────────────
@@ -298,33 +476,33 @@ setup() {
 
 @test "is_agent_idle: returns 0 (idle) when flag exists" {
   local agent="idletest_$$"
-  touch "/tmp/shogun_idle_${agent}"
+  touch "$(shogun_idle_flag "$agent" "")"
   run is_agent_idle "$agent" ""
-  rm -f "/tmp/shogun_idle_${agent}"
+  rm -f "$(shogun_idle_flag "$agent" "")"
   [ "$status" -eq 0 ]
 }
 
 @test "is_agent_idle: returns 1 (busy) when flag is absent" {
   local agent="idletest_$$"
-  rm -f "/tmp/shogun_idle_${agent}"
+  rm -f "$(shogun_idle_flag "$agent" "")"
   run is_agent_idle "$agent" ""
   [ "$status" -ne 0 ]
 }
 
 @test "is_agent_idle: uses project-specific flag when project_id is set" {
   local agent="idletest_$$" proj="idleproj_$$"
-  touch "/tmp/shogun_idle_${proj}_${agent}"
+  touch "$(shogun_idle_flag "$agent" "$proj")"
   run is_agent_idle "$agent" "$proj"
-  rm -f "/tmp/shogun_idle_${proj}_${agent}"
+  rm -f "$(shogun_idle_flag "$agent" "$proj")"
   [ "$status" -eq 0 ]
 }
 
 @test "is_agent_idle: project flag does not satisfy the no-project check" {
   # project 別フラグだけがある場合、project_id 未指定の判定では busy(1) になる
   local agent="idletest_$$" proj="idleproj_$$"
-  touch "/tmp/shogun_idle_${proj}_${agent}"
+  touch "$(shogun_idle_flag "$agent" "$proj")"
   run is_agent_idle "$agent" ""
-  rm -f "/tmp/shogun_idle_${proj}_${agent}"
+  rm -f "$(shogun_idle_flag "$agent" "$proj")"
   [ "$status" -ne 0 ]
 }
 

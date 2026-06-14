@@ -13,6 +13,10 @@ set -euo pipefail
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export NODE_PATH="${_SCRIPT_DIR}/../node_modules${NODE_PATH:+:$NODE_PATH}"
 
+# フラグ命名は scripts/flag_names.sh に集約（stop_hook.sh / mark_busy.sh /
+# inbox_watcher.sh と共通。SHOGUN_ROOT 由来キーで別リポジトリ間の衝突を防ぐ）。
+source "${_SCRIPT_DIR}/flag_names.sh"
+
 ROLE="${SHOGUN_ROLE:-}"
 ROOT="${SHOGUN_ROOT:-${CLAUDE_PROJECT_DIR:-$PWD}}"
 
@@ -21,17 +25,64 @@ ROOT="${SHOGUN_ROOT:-${CLAUDE_PROJECT_DIR:-$PWD}}"
 # パストラバーサル防止: 役職名は英数字・アンダースコア・ハイフンのみ許可
 [[ "$ROLE" =~ ^[A-Za-z0-9_-]+$ ]] || exit 0
 
-# ターン開始時に idle フラグを削除して busy 状態へ遷移する。
-# Stop フック（scripts/stop_hook.sh）がターン完了時に立てた idle フラグを消すことで、
-# escalation watcher が「作業中（busy）」と判定し誤って中断しないようにする。
-# フラグ名は stop_hook.sh / inbox_watcher.sh の is_agent_idle と一致させる。
-# project_id の検証も stop_hook.sh と揃える（不正値ならフラグ操作をスキップ＝
-# stop_hook.sh もフラグを作らないため、消すべき対象が存在しない）。
-_PROJECT_ID="${SHOGUN_PROJECT_ID:-}"
-if [[ -z "$_PROJECT_ID" ]]; then
-  rm -f "/tmp/shogun_idle_${ROLE}"
-elif [[ "$_PROJECT_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
-  rm -f "/tmp/shogun_idle_${_PROJECT_ID}_${ROLE}"
+# SessionStart hook の入力(JSON)から source を取得する。stdin が端末のとき
+# （手動実行・ローカルテスト）は読まずに従来どおり idle 化する（cat のハング防止）。
+HOOK_SOURCE=""
+if [[ ! -t 0 ]]; then
+  _HOOK_INPUT="$(cat)"
+  HOOK_SOURCE="$(printf '%s' "$_HOOK_INPUT" | node -e '
+let s = "";
+process.stdin.on("data", d => s += d);
+process.stdin.on("end", () => {
+  try { process.stdout.write(String(JSON.parse(s).source || "")); }
+  catch (e) { process.stdout.write(""); }
+});
+' 2>/dev/null || true)"
+fi
+
+# SessionStart 時点（起動 / resume / clear）はプロンプト待ち = idle なので idle フラグを立てる。
+# これがないと、起動直後でまだ一度も Stop していないエージェントは「フラグ無し = busy」と
+# 誤判定され、最初のタスク通知が wake ゲート（inbox_watcher の is_agent_idle）で skip される。
+# busy 化はターン開始時の mark_busy.sh（UserPromptSubmit フック）が担う。
+# フラグ名は flag_names.sh の shogun_idle_flag に集約（stop_hook.sh / mark_busy.sh /
+# inbox_watcher.sh の is_agent_idle と一致）。
+# project_id の検証も stop_hook.sh と揃える（不正値ならフラグ操作をスキップ）。
+#
+# 例外: source=compact の継続ターンでは UserPromptSubmit(mark_busy) が走らないため、
+# ここで idle フラグを立てると作業中(busy)のまま idle と誤判定され、busy ペインへの
+# send-keys 注入（出力破損）が再発する。compact ではフラグを一切操作せず、直前の
+# busy/idle 状態をそのまま維持する（busy 側に倒して破損を防ぐ）。
+# コールドスタートで拾った inbox 未読の通知文（additionalContext 先頭へ載せる）。
+INBOX_NOTICE=""
+if [[ "$HOOK_SOURCE" != "compact" ]]; then
+  _PROJECT_ID="${SHOGUN_PROJECT_ID:-}"
+  _INBOX=""
+  if [[ -z "$_PROJECT_ID" ]]; then
+    touch "$(shogun_idle_flag "$ROLE" "")"
+    _INBOX="${ROOT}/.shogun/queue/inbox/${ROLE}.yaml"
+  elif [[ "$_PROJECT_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    touch "$(shogun_idle_flag "$ROLE" "$_PROJECT_ID")"
+    _INBOX="${ROOT}/.shogun/queue/projects/${_PROJECT_ID}/inbox/${ROLE}.yaml"
+  fi
+
+  # コールドスタート救済: watcher は claude より先に起動するため、SessionStart が idle
+  # フラグを作る前に来た inbox 更新を wake_up_inbox が busy 判定で捨てる（inbox は reports と
+  # 違い pending マーカーを持たない）。起動直後はまだ Stop も走らず回収経路が無いため、
+  # ここで未読を additionalContext へ載せて初回タスクの取りこぼしを防ぐ。
+  # 2 回目以降の取りこぼしは Stop フック（stop_hook.sh）が毎ターン未読を再提示してカバーする。
+  if [[ -n "$_INBOX" && -f "$_INBOX" ]]; then
+    _UNREAD=$(node -e '
+const yaml = require("js-yaml");
+try {
+  const data = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
+  const n = (data.messages || []).filter(m => m.status === "unread").length;
+  process.stdout.write(String(n));
+} catch (e) { process.stdout.write("0"); }
+' -- "$_INBOX" 2>/dev/null || echo "0")
+    if [[ "$_UNREAD" =~ ^[0-9]+$ && "$_UNREAD" -gt 0 ]]; then
+      INBOX_NOTICE="📬 inbox（${_INBOX#${ROOT}/}）に ${_UNREAD} 件の未読メッセージがあります。最優先で確認してください。"
+    fi
+  fi
 fi
 
 # instructions ファイル名は末尾の数字を除去する（ashigaru1 → ashigaru）。
@@ -49,6 +100,13 @@ HEADER="# あなたの役職: ${ROLE}
 
 あなたは Shogun マルチエージェントシステムの「${ROLE}」です（SHOGUN_ROLE=${ROLE}）。
 以下の役割定義（instructions/${BASE_ROLE}.md）と共通設定（CLAUDE.md）に従って行動してください。"
+
+# コールドスタートで未読を検知していれば additionalContext の先頭に載せる。
+if [[ -n "$INBOX_NOTICE" ]]; then
+  HEADER="${INBOX_NOTICE}
+
+${HEADER}"
+fi
 
 # 値は process.argv 経由で渡し、JSON.stringify で安全にエスケープする
 node -e '

@@ -11,6 +11,15 @@ set -euo pipefail
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export NODE_PATH="${_SCRIPT_DIR}/../node_modules${NODE_PATH:+:$NODE_PATH}"
 
+# フラグ命名は scripts/flag_names.sh に集約（mark_busy.sh / stop_hook.sh /
+# inject_role.sh と共通。SHOGUN_ROOT 由来キーで別リポジトリ間の衝突を防ぐ）。
+source "${_SCRIPT_DIR}/flag_names.sh"
+
+# macOS: util-linux の flock を keg-only パスから補完（notify_pane の直列化で使う）
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  export PATH="/opt/homebrew/opt/util-linux/bin:${PATH}"
+fi
+
 # ────────────────────────────────────────────────────────────
 # 純粋関数（テスト対象）
 # ────────────────────────────────────────────────────────────
@@ -41,13 +50,25 @@ should_wake_on_report() {
 # 本文を送ってから Enter を単独送信し、間に短いウェイトを挟むことで取りこぼしを防ぐ。
 notify_pane() {
   local pane="$1" message="$2"
-  tmux send-keys -t "$pane" "$message" 2>/dev/null || true
-  sleep "${SHOGUN_WAKE_ENTER_DELAY:-0.3}"
-  tmux send-keys -t "$pane" Enter 2>/dev/null || true
+  # ペイン単位の flock で本文と Enter を1クリティカルセクションに包み、並行する
+  # watcher（inbox / reports / ASW）の send-keys が隙間に割り込んで混線するのを防ぐ。
+  # ロック取得に失敗（5秒タイムアウト）したら送信を諦める（破損を避け、ループは継続）。
+  local lock_name="${pane//[^A-Za-z0-9_-]/_}"
+  local lock_file="/tmp/shogun_send_${lock_name}.lock"
+  (
+    flock -w 5 200 || exit 0
+    tmux send-keys -t "$pane" "$message" 2>/dev/null || true
+    sleep "${SHOGUN_WAKE_ENTER_DELAY:-0.3}"
+    tmux send-keys -t "$pane" Enter 2>/dev/null || true
+  ) 200>"$lock_file" || true
 }
 
 # inbox の未読件数を確認し、未読があればペインへ通知する
 wake_up_inbox() {
+  # busy（作業中）のときは送らない。描画中・コマンド実行中のペインへ send-keys すると
+  # 出力が破損するため。取りこぼした通知は Stop フックが次ターン冒頭で再提示する。
+  is_agent_idle "$AGENT_ID" "${SHOGUN_PROJECT_ID:-}" || return 0
+
   local unread subject node_out
   # 1回の node 呼び出しで件数と件名を同時取得（二重読み込み・TOCTOU 回避）
   node_out=$(node -e '
@@ -72,8 +93,27 @@ process.stdout.write(String(msgs.length) + "\n" + subject);
   fi
 }
 
+# reports pending マーカーのパスを返す（busy 中にスキップした report 通知の記録用）。
+# 命名は flag_names.sh の shogun_reports_pending_flag に集約（stop_hook.sh と一致）。
+reports_pending_flag() {
+  shogun_reports_pending_flag "$1" "$2"
+}
+
 # reports/ の更新を検知したときペインへ通知する（inbox_write 漏れに対する安全網）
 wake_up_reports() {
+  local pending; pending="$(reports_pending_flag "$AGENT_ID" "${SHOGUN_PROJECT_ID:-}")"
+
+  # busy 中は送らない（wake_up_inbox と同じく描画破損を防ぐ）。ただし握りつぶすと
+  # 次の更新イベントが来ない限り永久に気づけない（inbox は Stop フックが必ず再確認
+  # するが reports は別経路で救済がない）。そのため pending マーカーを立て、Stop フック
+  # が idle 復帰時に未処理 report を再通知できるようにする。
+  if ! is_agent_idle "$AGENT_ID" "${SHOGUN_PROJECT_ID:-}"; then
+    touch "$pending" 2>/dev/null || true
+    return 0
+  fi
+
+  # idle 時はここで直接通知するため、残っている pending は不要（Stop の二重通知を防ぐ）。
+  rm -f "$pending" 2>/dev/null || true
   notify_pane "$PANE" \
     ".shogun/queue/reports/ に下位エージェントの報告が更新されました。集約して上位へ報告してください。"
 }
@@ -89,11 +129,7 @@ wake_up_reports() {
 # 戻り値: idle なら 0（つつき可）、busy なら 1（スキップ）
 is_agent_idle() {
   local agent="$1" project_id="$2"
-  if [[ -n "$project_id" ]]; then
-    [[ -f "/tmp/shogun_idle_${project_id}_${agent}" ]]
-  else
-    [[ -f "/tmp/shogun_idle_${agent}" ]]
-  fi
+  [[ -f "$(shogun_idle_flag "$agent" "$project_id")" ]]
 }
 
 # フェーズ1: 催促メッセージ（nudge）

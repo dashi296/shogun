@@ -153,6 +153,48 @@ stop_project_watchers() {
 }
 
 # ════════════════════════════════════════════════════════════
+# settings.json マージ（init / upgrade 共有）
+# ════════════════════════════════════════════════════════════
+# templates/.claude/settings.json の全フック種別を dest へマージする。
+# 既存のユーザー設定を壊さず、コマンド中の scripts/<name>.sh の署名で冪等判定する
+# （再 init / 再 upgrade でも重複登録しない）。dest が無ければテンプレートから作成する。
+# init と upgrade の双方から呼ぶことで、既存プロジェクトの upgrade でも
+# 新フック（mark_busy など）が確実に追加される。
+# 戻り値: 2=dest が不正な JSON（触らずスキップ）、それ以外=正常。
+_merge_claude_settings() {
+  local dest="$1" src="$2"
+  node -e '
+const fs = require("fs");
+const [dest, tmpl] = process.argv.slice(1);
+const t = JSON.parse(fs.readFileSync(tmpl, "utf8"));
+let d = {};
+if (fs.existsSync(dest)) {
+  try { d = JSON.parse(fs.readFileSync(dest, "utf8")) || {}; }
+  catch (e) { process.exit(2); }   // 不正な JSON は触らない
+}
+// コマンド文字列から scripts/<name>.sh を抜き出して冪等判定の署名にする
+const sig = (cmd) => {
+  const m = (cmd || "").match(/scripts\/([A-Za-z0-9_-]+\.sh)/);
+  return m ? m[1] : (cmd || "");
+};
+d.hooks = d.hooks || {};
+const tHooks = t.hooks || {};
+for (const event of Object.keys(tHooks)) {
+  d.hooks[event] = d.hooks[event] || [];
+  const existing = new Set();
+  for (const e of d.hooks[event]) {
+    for (const h of (e.hooks || [])) existing.add(sig(h.command));
+  }
+  for (const entry of tHooks[event]) {
+    const sigs = (entry.hooks || []).map(h => sig(h.command));
+    if (!sigs.some(s => existing.has(s))) d.hooks[event].push(entry);
+  }
+}
+fs.writeFileSync(dest, JSON.stringify(d, null, 2) + "\n");
+' -- "$dest" "$src"
+}
+
+# ════════════════════════════════════════════════════════════
 # shogun init
 # ════════════════════════════════════════════════════════════
 cmd_init() {
@@ -311,33 +353,20 @@ fs.writeFileSync(file, yaml.dump(data, {allowUnicode: true}));
     info ".claude/commands/ にスキルをコピーしました。"
   fi
 
-  # templates/.claude/settings.json → .claude/settings.json（SessionStart 役職注入フック）
-  # 既存のユーザー設定は壊さずマージし、再 init でも重複登録しない。
+  # templates/.claude/settings.json → .claude/settings.json
+  #   SessionStart=inject_role / Stop=stop_hook / UserPromptSubmit=mark_busy
+  # テンプレートの全フック種別を、既存のユーザー設定を壊さずマージする。
+  # 冪等判定はコマンド中の scripts/<name>.sh の署名で行い、再 init でも重複登録しない。
   local claude_settings_src="${templates}/.claude/settings.json"
   if [[ -f "$claude_settings_src" ]]; then
     mkdir -p "${project_dir}/.claude"
     local claude_settings_dest="${project_dir}/.claude/settings.json"
     local merge_status=0
-    node -e '
-const fs = require("fs");
-const [dest, tmpl] = process.argv.slice(1);
-const t = JSON.parse(fs.readFileSync(tmpl, "utf8"));
-let d = {};
-if (fs.existsSync(dest)) {
-  try { d = JSON.parse(fs.readFileSync(dest, "utf8")) || {}; }
-  catch (e) { process.exit(2); }   // 不正な JSON は触らない
-}
-d.hooks = d.hooks || {};
-d.hooks.SessionStart = d.hooks.SessionStart || [];
-const already = d.hooks.SessionStart.some(e =>
-  (e.hooks || []).some(h => /inject_role\.sh/.test(h.command || "")));
-if (!already) d.hooks.SessionStart.push(t.hooks.SessionStart[0]);
-fs.writeFileSync(dest, JSON.stringify(d, null, 2) + "\n");
-' -- "$claude_settings_dest" "$claude_settings_src" || merge_status=$?
+    _merge_claude_settings "$claude_settings_dest" "$claude_settings_src" || merge_status=$?
     if [[ "$merge_status" -eq 2 ]]; then
-      info ".claude/settings.json が不正な JSON のため、役職フックの自動追加をスキップしました。"
+      info ".claude/settings.json が不正な JSON のため、フックの自動追加をスキップしました。"
     else
-      info ".claude/settings.json に役職注入フック（SessionStart）を設定しました。"
+      info ".claude/settings.json にフック（SessionStart / Stop / UserPromptSubmit）を設定しました。"
     fi
   fi
 
@@ -1188,6 +1217,20 @@ cmd_upgrade() {
         [[ -e "$_dest" ]] || { cp "$_f" "$_dest"; _added=$(( _added + 1 )); }
       done
       [[ "$_added" -gt 0 ]] && info ".claude/commands/ に ${_added} 件の新規スキルを追加しました（既存ファイルは保護されています）。"
+    fi
+    # settings.json のフックを最新化（既存ユーザー設定は保護）。
+    # 新フック（例: UserPromptSubmit=mark_busy）はテンプレート追加だけでは既存
+    # プロジェクトに反映されず、SessionStart 系の挙動変更と組み合わさると busy/idle
+    # 判定が壊れて出力破損を招くため、upgrade でも init と同じマージを必ず適用する。
+    local updated_settings_src="${SHOGUN_BIN_DIR}/templates/.claude/settings.json"
+    if [[ -d "${PWD}/.claude" && -f "$updated_settings_src" ]]; then
+      local upgrade_merge_status=0
+      _merge_claude_settings "${PWD}/.claude/settings.json" "$updated_settings_src" || upgrade_merge_status=$?
+      if [[ "$upgrade_merge_status" -eq 2 ]]; then
+        info ".claude/settings.json が不正な JSON のため、フックの最新化をスキップしました。"
+      else
+        info ".claude/settings.json のフックを最新化しました（SessionStart / Stop / UserPromptSubmit）。"
+      fi
     fi
   else
     error "バージョン ${target_version} が見つかりません。"; exit 1

@@ -14,6 +14,10 @@ set -euo pipefail
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export NODE_PATH="${_SCRIPT_DIR}/../node_modules${NODE_PATH:+:$NODE_PATH}"
 
+# フラグ命名は scripts/flag_names.sh に集約（mark_busy.sh / inject_role.sh /
+# inbox_watcher.sh と共通。SHOGUN_ROOT 由来キーで別リポジトリ間の衝突を防ぐ）。
+source "${_SCRIPT_DIR}/flag_names.sh"
+
 AGENT="${SHOGUN_ROLE:-}"
 
 # 役職が未設定なら何もしない（フックは全セッションで発火するため安全側に倒す）
@@ -28,15 +32,21 @@ if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
   [[ "${SHOGUN_PROJECT_ID}" =~ ^[A-Za-z0-9_-]+$ ]] || exit 0
 fi
 
-# idle フラグの命名: SHOGUN_PROJECT_ID 併用時の名前衝突を回避（既存の project_id 連動パターンに倣う）
-if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
-  FLAG="/tmp/shogun_idle_${SHOGUN_PROJECT_ID}_${AGENT}"
-else
-  FLAG="/tmp/shogun_idle_${AGENT}"
-fi
+# idle フラグの命名は flag_names.sh に集約（SHOGUN_PROJECT_ID / SHOGUN_ROOT で名前空間を分離）。
+FLAG="$(shogun_idle_flag "$AGENT" "${SHOGUN_PROJECT_ID:-}")"
 
 # idle 状態へ遷移（busy → idle）
 touch "$FLAG"
+
+# reports 安全網: inbox_watcher が busy 中にスキップした report 通知を idle 復帰時に再提示する。
+# inbox と違い reports には Stop 以外の救済経路がなく、busy 中に握りつぶすと次の更新が
+# 来ない限り永久に気づけないため、ここで pending マーカーを消費して再通知する。
+# マーカー名は inbox_watcher.sh の reports_pending_flag と一致させること（flag_names.sh に集約）。
+REPORTS_PENDING="$(shogun_reports_pending_flag "$AGENT" "${SHOGUN_PROJECT_ID:-}")"
+if [[ -f "$REPORTS_PENDING" ]]; then
+  rm -f "$REPORTS_PENDING"
+  echo ".shogun/queue/reports/ に下位エージェントの報告が更新されています。集約して上位へ報告してください。"
+fi
 
 # inbox 未読確認（未読があればメッセージを stdout に出力 → Claude Code が次ターンで受信）
 ROOT="${SHOGUN_ROOT:-}"

@@ -83,6 +83,62 @@ if (d.hookSpecificOutput.hookEventName !== "SessionStart") process.exit(1);
   rm -f "/tmp/shogun_idle_${proj}_${role}"
 }
 
+# --- source=compact では idle フラグを操作しない（busy 中の出力破損を防ぐ） ---
+# compact 継続ターンでは UserPromptSubmit(mark_busy) が走らず、ここで idle フラグを
+# 立てると作業中(busy)のまま idle と誤判定され、busy ペインへの send-keys 注入が再発する。
+# そのため source=compact では touch せず、直前の busy/idle 状態を維持する。
+
+@test "inject_role: does NOT set the idle flag when source=compact (busy preserved)" {
+  local role="injcompacttest_$$"
+  rm -f "/tmp/shogun_idle_${role}"          # busy 状態を模す（フラグ無し）
+  export SHOGUN_ROLE="$role"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"compact"}'
+  [ "$status" -eq 0 ]
+  # compact では idle フラグを立てない（busy のまま）
+  [ ! -f "/tmp/shogun_idle_${role}" ]
+  rm -f "/tmp/shogun_idle_${role}"
+}
+
+@test "inject_role: still injects role context when source=compact" {
+  export SHOGUN_ROLE="taisho"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"compact"}'
+  [ "$status" -eq 0 ]
+  # compact でも役職コンテキストの注入は従来どおり行う
+  ctx="$(echo "$output" | _additional_context)"
+  [[ "$ctx" == *"TAISHO_ROLE_MARKER"* ]]
+}
+
+@test "inject_role: keeps an existing idle flag during compact (idle preserved)" {
+  local role="injcompacttest_$$"
+  touch "/tmp/shogun_idle_${role}"          # 直前は idle
+  export SHOGUN_ROLE="$role"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"compact"}'
+  [ "$status" -eq 0 ]
+  # compact ではフラグに触れず idle を維持する
+  [ -f "/tmp/shogun_idle_${role}" ]
+  rm -f "/tmp/shogun_idle_${role}"
+}
+
+@test "inject_role: sets the idle flag when source=startup" {
+  local role="injstartuptest_$$"
+  rm -f "/tmp/shogun_idle_${role}"
+  export SHOGUN_ROLE="$role"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"startup"}'
+  [ "$status" -eq 0 ]
+  [ -f "/tmp/shogun_idle_${role}" ]
+  rm -f "/tmp/shogun_idle_${role}"
+}
+
+@test "inject_role: does NOT set a project-specific idle flag when source=compact" {
+  local role="injcompacttest_$$" proj="injcompactproj_$$"
+  rm -f "/tmp/shogun_idle_${proj}_${role}"
+  export SHOGUN_ROLE="$role" SHOGUN_PROJECT_ID="$proj"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"compact"}'
+  [ "$status" -eq 0 ]
+  [ ! -f "/tmp/shogun_idle_${proj}_${role}" ]
+  rm -f "/tmp/shogun_idle_${proj}_${role}"
+}
+
 @test "inject_role: additionalContext includes the common CLAUDE.md" {
   export SHOGUN_ROLE="taisho"
   run bash "${SHOGUN_REPO}/scripts/inject_role.sh"

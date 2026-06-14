@@ -101,10 +101,10 @@ if [[ "$stop_hook_active" != "true" ]]; then
     #   読む tasks 配列形式（tasks: [{ status, task_id }]）と、割り当てで使う task 単一オブジェクト形式。
     # - レポートは reports 配列（要素ごとに task_id）。複数タスクが同じファイルに蓄積されるため、
     #   reports の有無だけでなく done タスクの task_id に対応する report があるかを照合する。
-    # - ただしテンプレートの報告手順は report への task_id 記入を必須にしていないため、task_id を
-    #   持たない（=どのタスク向けか不明だが記入済みの）report エントリがあれば報告済みとみなす。
-    #   これにより task_id 厳密照合による誤ブロックを防ぎつつ、task_id 付き report しか無い場合
-    #   （古いタスクの報告だけが残るケース）は引き続き未報告として検出する。
+    #   テンプレートの報告手順で report への task_id 記入を必須化しており、これが task と report を
+    #   一意に対応づける識別子になる（task_id なしの古い report が残るだけでは報告済みにしない）。
+    # - task 側に task_id を持たない旧形式タスクは task_id で照合できないため、reports の記入有無
+    #   （旧形式トップレベル含む）でフォールバック判定する。
     report_missing=$(node -e '
       try {
         const fs = require("fs");
@@ -125,14 +125,12 @@ if [[ "$stop_hook_active" != "true" ]]; then
         const reportedIds = new Set(reports.map(r => r && r.task_id).filter(Boolean));
         if (rd.task_id) reportedIds.add(rd.task_id); // 旧形式トップレベル
         const reportFilled = reports.length > 0 || rd.status || rd.task_id || rd.summary;
-        // task_id を持たないが内容のある report（task_id 必須でないテンプレート向けのフォールバック）。
-        const hasUntaggedReport =
-          reports.some(r => r && !r.task_id) ||
-          (reports.length === 0 && (rd.status || rd.summary));
         for (const t of doneTasks) {
           if (t.task_id) {
-            if (!reportedIds.has(t.task_id) && !hasUntaggedReport) { process.stdout.write("yes"); process.exit(0); }
+            // task_id を持つ done タスクは対応する task_id の report が必須。
+            if (!reportedIds.has(t.task_id)) { process.stdout.write("yes"); process.exit(0); }
           } else if (!reportFilled) {
+            // task_id を持たない旧形式タスクは記入有無でフォールバック判定。
             process.stdout.write("yes"); process.exit(0);
           }
         }

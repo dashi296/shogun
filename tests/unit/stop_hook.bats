@@ -359,9 +359,9 @@ YAML
   [ -f "$IDLE" ]
 }
 
-# テンプレートの報告手順は report への task_id 記入を必須にしていないため、
-# summary/status だけ書いた task_id なしレポートも報告済みとして扱う（issue #56・誤ブロック防止）。
-@test "stop_hook: does not block when a done task has a report without task_id" {
+# report への task_id 記入を必須化したため、task に task_id がある done タスクに対し、
+# 対応する task_id を持つ report が無ければ（task_id なしの古い report が残るだけでは）ブロックする（issue #56）。
+@test "stop_hook: blocks a done task_id when only a task_id-less report exists" {
   mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
   cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
 task:
@@ -376,7 +376,7 @@ reports:
 YAML
   SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
   [ "$status" -eq 0 ]
-  echo "$output" | grep -vq '"decision":"block"' || [ -z "$output" ]
+  echo "$output" | grep -q '"decision":"block"'
   [ -f "$IDLE" ]
 }
 

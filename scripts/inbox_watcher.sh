@@ -24,6 +24,30 @@ fi
 # 純粋関数（テスト対象）
 # ────────────────────────────────────────────────────────────
 
+# inbox ファイルのパスを計算する。
+# 引数: <agent_id> <project_id_or_empty> <root>
+# 出力: inbox ファイルの絶対パスを stdout に出力
+resolve_inbox_path() {
+  local agent_id="$1" project_id="$2" root="$3"
+  if [[ -n "$project_id" ]]; then
+    echo "${root}/.shogun/queue/projects/${project_id}/inbox/${agent_id}.yaml"
+  else
+    echo "${root}/.shogun/queue/inbox/${agent_id}.yaml"
+  fi
+}
+
+# reports ディレクトリのパスを計算する。
+# 引数: <project_id_or_empty> <root>
+# 出力: reports ディレクトリの絶対パスを stdout に出力
+resolve_reports_dir() {
+  local project_id="$1" root="$2"
+  if [[ -n "$project_id" ]]; then
+    echo "${root}/.shogun/queue/projects/${project_id}/reports"
+  else
+    echo "${root}/.shogun/queue/reports"
+  fi
+}
+
 # 変更された report ファイルで上位エージェントを起こすべきか判定する。
 # 引数: <変更ファイルの basename> <自分が消費する報告元の空白区切りリスト(sources)>
 # 戻り値: 起こすべきなら 0、無視すべきなら 1
@@ -289,12 +313,9 @@ main() {
   # SHOGUN_PROJECT_ID が設定されている場合はプロジェクト専用のパスを使用
   if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
     [[ "$SHOGUN_PROJECT_ID" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "ERROR: 不正な project_id: ${SHOGUN_PROJECT_ID}"; exit 1; }
-    INBOX="${ROOT}/.shogun/queue/projects/${SHOGUN_PROJECT_ID}/inbox/${AGENT_ID}.yaml"
-    REPORTS_DIR="${ROOT}/.shogun/queue/projects/${SHOGUN_PROJECT_ID}/reports"
-  else
-    INBOX="${ROOT}/.shogun/queue/inbox/${AGENT_ID}.yaml"
-    REPORTS_DIR="${ROOT}/.shogun/queue/reports"
   fi
+  INBOX="$(resolve_inbox_path "$AGENT_ID" "${SHOGUN_PROJECT_ID:-}" "$ROOT")"
+  REPORTS_DIR="$(resolve_reports_dir "${SHOGUN_PROJECT_ID:-}" "$ROOT")"
   # 消費する報告元の allowlist（空白区切り）。bin/shogun が役職ごとに設定する。
   #   karo  -> "gunshi metsuke ashigaru1 ..." / taisho -> "karo"
   REPORT_SOURCES="${SHOGUN_REPORT_SOURCES:-}"

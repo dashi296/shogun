@@ -156,3 +156,91 @@ if (d.hookSpecificOutput.hookEventName !== "SessionStart") process.exit(1);
 if (!String(d.hookSpecificOutput.additionalContext).includes("TAISHO_ROLE_MARKER")) process.exit(1);
 '
 }
+
+# --- persona.sengoku / config.yaml 解決 ---
+
+@test "inject_role: persona.sengoku=true expands {{ persona.sengoku }} to true" {
+  mkdir -p "${TEST_PROJECT}/.shogun"
+  printf 'persona:\n  sengoku: true\n' > "${TEST_PROJECT}/.shogun/config.yaml"
+  printf '{{ persona.sengoku }}\n' >> "${TEST_PROJECT}/.shogun/instructions/taisho.md"
+  export SHOGUN_ROLE="taisho"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh"
+  [ "$status" -eq 0 ]
+  ctx="$(echo "$output" | _additional_context)"
+  # placeholder が消えていることを主に確認（"true" は委任原則内 "while true" でも出現するため否定で検査）
+  [[ "$ctx" != *"{{ persona.sengoku }}"* ]]
+  # instructions ファイルに書いた placeholder が "true" に置換されたことを行単位で確認
+  echo "$ctx" | grep -qF 'sengoku: true' || [[ $'\n'"$ctx"$'\n' == *$'\n'"true"$'\n'* ]]
+}
+
+@test "inject_role: persona.sengoku=false expands {{ persona.sengoku }} to false" {
+  mkdir -p "${TEST_PROJECT}/.shogun"
+  printf 'persona:\n  sengoku: false\n' > "${TEST_PROJECT}/.shogun/config.yaml"
+  printf '{{ persona.sengoku }}\n' >> "${TEST_PROJECT}/.shogun/instructions/taisho.md"
+  export SHOGUN_ROLE="taisho"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh"
+  [ "$status" -eq 0 ]
+  ctx="$(echo "$output" | _additional_context)"
+  [[ "$ctx" != *"{{ persona.sengoku }}"* ]]
+  [[ $'\n'"$ctx"$'\n' == *$'\n'"false"$'\n'* ]]
+}
+
+@test "inject_role: missing config.yaml expands {{ persona.sengoku }} to false" {
+  printf '{{ persona.sengoku }}\n' >> "${TEST_PROJECT}/.shogun/instructions/taisho.md"
+  export SHOGUN_ROLE="taisho"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh"
+  [ "$status" -eq 0 ]
+  ctx="$(echo "$output" | _additional_context)"
+  [[ "$ctx" == *"false"* ]]
+  [[ "$ctx" != *"{{ persona.sengoku }}"* ]]
+}
+
+@test "inject_role: invalid YAML in config.yaml falls back to false and exits 0" {
+  mkdir -p "${TEST_PROJECT}/.shogun"
+  printf 'this: is: invalid: yaml: {{\n' > "${TEST_PROJECT}/.shogun/config.yaml"
+  # placeholder を含む instructions を配置して false への置換を確認する
+  printf '{{ persona.sengoku }}\n' >> "${TEST_PROJECT}/.shogun/instructions/taisho.md"
+  export SHOGUN_ROLE="taisho"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh"
+  [ "$status" -eq 0 ]
+  ctx="$(echo "$output" | _additional_context)"
+  [[ "$ctx" == *"false"* ]]
+}
+
+@test "inject_role: persona.sengoku=true adds sengoku-enabled line to HEADER" {
+  mkdir -p "${TEST_PROJECT}/.shogun"
+  printf 'persona:\n  sengoku: true\n' > "${TEST_PROJECT}/.shogun/config.yaml"
+  export SHOGUN_ROLE="taisho"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh"
+  [ "$status" -eq 0 ]
+  ctx="$(echo "$output" | _additional_context)"
+  [[ "$ctx" == *"口調設定"* ]]
+  [[ "$ctx" == *"有効"* ]]
+}
+
+@test "inject_role: persona.sengoku=false adds normal-tone line to HEADER" {
+  mkdir -p "${TEST_PROJECT}/.shogun"
+  printf 'persona:\n  sengoku: false\n' > "${TEST_PROJECT}/.shogun/config.yaml"
+  export SHOGUN_ROLE="taisho"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh"
+  [ "$status" -eq 0 ]
+  ctx="$(echo "$output" | _additional_context)"
+  [[ "$ctx" == *"口調設定"* ]]
+  [[ "$ctx" == *"無効"* ]]
+}
+
+@test "inject_role: HEADER includes delegation principle (self_execute_task forbidden)" {
+  export SHOGUN_ROLE="taisho"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh"
+  [ "$status" -eq 0 ]
+  ctx="$(echo "$output" | _additional_context)"
+  [[ "$ctx" == *"self_execute_task"* ]]
+}
+
+@test "inject_role: ashigaru role does NOT get delegation principle in HEADER" {
+  export SHOGUN_ROLE="ashigaru1"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh"
+  [ "$status" -eq 0 ]
+  ctx="$(echo "$output" | _additional_context)"
+  [[ "$ctx" != *"self_execute_task"* ]]
+}

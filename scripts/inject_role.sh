@@ -43,6 +43,7 @@ done
 
 INSTRUCTIONS="${ROOT}/.shogun/instructions/${BASE_ROLE}.md"
 COMMON="${ROOT}/.shogun/CLAUDE.md"
+CONFIG="${ROOT}/.shogun/config.yaml"
 
 HEADER="# あなたの役職: ${ROLE}
 
@@ -52,12 +53,44 @@ HEADER="# あなたの役職: ${ROLE}
 # 値は process.argv 経由で渡し、JSON.stringify で安全にエスケープする
 node -e '
 const fs = require("fs");
-const [role, header, ...files] = process.argv.slice(1);
-let ctx = header + "\n";
+const [role, configPath, header, ...files] = process.argv.slice(1);
+
+let sengoku = false;
+try {
+  const yaml = require("js-yaml");
+  const cfg = yaml.load(fs.readFileSync(configPath, "utf8"));
+  sengoku = cfg?.persona?.sengoku === true;
+} catch (e) {
+  // 欠損・不正 YAML -> false にフォールバック（exit 0 で継続）
+}
+const sengokuStr = String(sengoku);
+
+const sengokuLine = sengoku
+  ? "戦国風口調【有効】: ターミナルへの出力は戦国風口調を使うこと。"
+  : "通常口調【無効】: ターミナルへの出力は通常口調を使うこと。";
+
+const baseRole = role.replace(/\d+$/, "");
+const isCoordinator = baseRole === "taisho" || baseRole === "karo";
+const delegationNote = isCoordinator ? [
+  "## 委任原則（coordinator 共通）",
+  "- タスクは自身で実行せず、担当役職へ委任すること（self_execute_task 禁止）",
+  "- ポーリングループの実行禁止（while true; do sleep; done 等）",
+  "- 担当外ファイルへの書き込み禁止",
+].join("\n") : "";
+
+const fullHeader = isCoordinator
+  ? header + "\n\n## 口調設定\n" + sengokuLine + "\n\n" + delegationNote
+  : header + "\n\n## 口調設定\n" + sengokuLine;
+
+let ctx = fullHeader + "\n";
 for (const f of files) {
-  try { ctx += "\n\n---\n\n" + fs.readFileSync(f, "utf8"); } catch (e) { /* 無いファイルは無視 */ }
+  try {
+    let content = fs.readFileSync(f, "utf8");
+    content = content.replace(/\{\{\s*persona\.sengoku\s*\}\}/g, sengokuStr);
+    ctx += "\n\n---\n\n" + content;
+  } catch (e) { /* 無いファイルは無視 */ }
 }
 process.stdout.write(JSON.stringify({
   hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: ctx }
 }));
-' -- "$ROLE" "$HEADER" "$INSTRUCTIONS" "$COMMON"
+' -- "$ROLE" "$CONFIG" "$HEADER" "$INSTRUCTIONS" "$COMMON"

@@ -18,6 +18,23 @@ export NODE_PATH="${_SCRIPT_DIR}/../node_modules${NODE_PATH:+:$NODE_PATH}"
 # inbox_watcher.sh と共通。SHOGUN_ROOT 由来キーで別リポジトリ間の衝突を防ぐ）。
 source "${_SCRIPT_DIR}/flag_names.sh"
 
+# stdin から Stop フック JSON を読み取り stop_hook_active フィールドを確認する。
+# stop_hook_active=true はフックが既に block 中の再帰呼び出しを示すため、
+# decision:block は出力しないが、idle 遷移・reports 安全網は通常通り実行する。
+HOOK_INPUT=""
+if [[ ! -t 0 ]]; then
+  HOOK_INPUT="$(cat)"
+fi
+stop_hook_active="false"
+if [[ -n "$HOOK_INPUT" ]]; then
+  stop_hook_active=$(node -e '
+    try {
+      const d = JSON.parse(process.argv[1]);
+      process.stdout.write(d.stop_hook_active === true ? "true" : "false");
+    } catch(e) { process.stdout.write("false"); }
+  ' -- "$HOOK_INPUT" 2>/dev/null || echo "false")
+fi
+
 AGENT="${SHOGUN_ROLE:-}"
 
 # 役職が未設定なら何もしない（フックは全セッションで発火するため安全側に倒す）
@@ -42,15 +59,31 @@ touch "$FLAG"
 # inbox と違い reports には Stop 以外の救済経路がなく、busy 中に握りつぶすと次の更新が
 # 来ない限り永久に気づけないため、ここで pending マーカーを消費して再通知する。
 # マーカー名は inbox_watcher.sh の reports_pending_flag と一致させること（flag_names.sh に集約）。
+#
+# 注: ここでは直接 echo せず REPORTS_MSG に保持する。後段で block JSON を出力する場合、
+# plain text を先に出すと stdout が「通常文 + JSON」の混在になり、Claude Code が
+# decision:block を単一 JSON として解釈できなくなる（issue #55 の block 契約が壊れる）。
+# block する経路では reason に畳み込み、しない経路でのみ plain text として出力する。
 REPORTS_PENDING="$(shogun_reports_pending_flag "$AGENT" "${SHOGUN_PROJECT_ID:-}")"
+REPORTS_MSG=""
 if [[ -f "$REPORTS_PENDING" ]]; then
   rm -f "$REPORTS_PENDING"
-  echo ".shogun/queue/reports/ に下位エージェントの報告が更新されています。集約して上位へ報告してください。"
+  REPORTS_MSG=".shogun/queue/reports/ に下位エージェントの報告が更新されています。集約して上位へ報告してください。"
 fi
+
+# block しない経路では reports 再通知を plain text で出力する（従来どおり）。
+# 早期 exit する経路（ROOT 未設定・inbox 不在）では block があり得ないため、ここで消費する。
+emit_reports_plain() {
+  [[ -n "$REPORTS_MSG" ]] && printf '%s\n' "$REPORTS_MSG"
+  return 0
+}
 
 # inbox 未読確認（未読があればメッセージを stdout に出力 → Claude Code が次ターンで受信）
 ROOT="${SHOGUN_ROOT:-}"
-[[ -n "$ROOT" ]] || exit 0
+if [[ -z "$ROOT" ]]; then
+  emit_reports_plain
+  exit 0
+fi
 
 if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
   INBOX="${ROOT}/.shogun/queue/projects/${SHOGUN_PROJECT_ID}/inbox/${AGENT}.yaml"
@@ -58,7 +91,10 @@ else
   INBOX="${ROOT}/.shogun/queue/inbox/${AGENT}.yaml"
 fi
 
-[[ -f "$INBOX" ]] || exit 0
+if [[ ! -f "$INBOX" ]]; then
+  emit_reports_plain
+  exit 0
+fi
 
 unread=$(node -e '
 const yaml = require("js-yaml");
@@ -67,6 +103,13 @@ const msgs = (data.messages || []).filter(m => m.status === "unread");
 process.stdout.write(String(msgs.length));
 ' -- "$INBOX" 2>/dev/null || echo "0")
 
-if [[ "$unread" -gt 0 ]]; then
-  echo "${INBOX#${ROOT}/} に ${unread} 件の未読メッセージがあります。確認してください。"
+if [[ "$unread" -gt 0 ]] && [[ "$stop_hook_active" != "true" ]]; then
+  # block 経路: stdout を単一 JSON に保つため、reports 再通知があれば reason に畳み込む。
+  # reason は node の JSON.stringify でエンコードし、特殊文字が混じっても壊れないようにする。
+  REASON="未読メッセージを処理してから終了せよ"
+  [[ -n "$REPORTS_MSG" ]] && REASON="${REPORTS_MSG} ${REASON}"
+  node -e 'process.stdout.write(JSON.stringify({decision:"block",reason:process.argv[1]})+"\n")' -- "$REASON"
+else
+  # block しない経路（未読なし・stop_hook_active=true）では reports を plain text で出す。
+  emit_reports_plain
 fi

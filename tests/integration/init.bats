@@ -295,3 +295,16 @@ process.stdout.write(d.project_id);
   shogun init --project-id myproject
   grep -qx "\.shogun/" .gitignore
 }
+
+# --- Sengoku Persona ---
+
+@test "init: config.yaml contains persona.sengoku: true" {
+  shogun init
+
+  run node -e "
+const yaml = require('js-yaml');
+const d = yaml.load(require('fs').readFileSync('.shogun/config.yaml', 'utf8'));
+process.stdout.write(JSON.stringify(d.persona != null && d.persona.sengoku === true));
+"
+  [ "$output" = "true" ]
+}

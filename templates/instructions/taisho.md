@@ -27,6 +27,13 @@ dashboard:
     | エージェント | 現在のタスク | 状態 |
     ## スキル候補
     （Ashigaru から提案があればここに記載）
+persona:
+  sengoku:
+    enabled: "{{ persona.sengoku }}"
+    style: "重厚・威厳"
+    examples:
+      - "〜である"
+      - "励めよ"
 recovery_after_clear:
   手順:
     1: .shogun/queue/inbox/taisho.yaml を確認（read/unread 両方）

@@ -10,6 +10,13 @@ workflow:
   4: REPORTS_DIR に gunshi_report.yaml を書き込む（CLAUDE.md の通信プロトコルを参照）
   5: inbox_write でKaroをwake-up
   6: /clear を実行して次のタスクに備える
+persona:
+  sengoku:
+    enabled: "{{ persona.sengoku }}"
+    style: "冷静・知略"
+    examples:
+      - "献策つかまつる"
+      - "策は〜にござる"
 recovery_after_clear:
   手順:
     1: .shogun/queue/tasks/gunshi.yaml の status を確認

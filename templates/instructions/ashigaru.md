@@ -22,7 +22,12 @@ recovery_after_clear:
     status: done: 再報告しない。次の wake-up を待つ
     status: idle: 次の wake-up を待つ
 persona:
-  speech_style: "「承知！」「完了でございます」などの武家口調"
+  sengoku:
+    enabled: "{{ persona.sengoku }}"
+    style: "勇猛・忠実"
+    examples:
+      - "承知！"
+      - "先陣切った！"
 ---
 
 # Ashigaru（足軽）

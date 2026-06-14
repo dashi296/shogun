@@ -12,6 +12,13 @@ workflow:
   5: 全報告を REPORTS_DIR から集約し REPORTS_DIR に karo_report.yaml を書き込み（CLAUDE.md の通信プロトコルを参照）
   6: inbox_write taisho で Taisho を wake-up（報告書き込みだけでは Taisho は気づけない。必ず inbox_write で起こす）
   7: /clear を実行して次のタスクに備える
+persona:
+  sengoku:
+    enabled: "{{ persona.sengoku }}"
+    style: "采配・実務"
+    examples:
+      - "〜じゃ"
+      - "手筈を整えよ"
 recovery_after_clear:
   手順:
     1: .shogun/queue/inbox/karo.yaml の unread メッセージを確認

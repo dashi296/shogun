@@ -172,6 +172,16 @@ process.stdout.write(String(d.messages.length));
   [[ "$output" == *".shogun"* ]]
 }
 
+@test "inbox_write: accepts SHOGUN_ROOT whose basename merely ends with .shogun" {
+  export SHOGUN_ROLE="taisho"
+  local proj="${TEST_PROJECT}/foo.shogun"
+  mkdir -p "${proj}/.shogun/queue/inbox"
+  export SHOGUN_ROOT="$proj"
+  run bash "${SHOGUN_REPO}/scripts/inbox_write.sh" "karo" "subject" "body"
+  [ "$status" -eq 0 ]
+  [ -f "${proj}/.shogun/queue/inbox/karo.yaml" ]
+}
+
 @test "inbox_write: warns when inbox parent directory does not exist" {
   export SHOGUN_ROLE="taisho"
   rm -rf "${TEST_PROJECT}/.shogun/queue/inbox"

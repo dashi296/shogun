@@ -274,3 +274,38 @@ YAML
   echo "$output" | node -e 'JSON.parse(require("fs").readFileSync(0,"utf8"))'
   echo "$output" | grep -q '"decision":"block"'
 }
+
+# shogun init / start --clean は reports: [] の空レポートを事前作成するため、
+# ファイル存在だけで判定すると未記入をブロックできない（issue #56 のリグレッション）。
+@test "stop_hook: blocks when task is done but report has an empty reports array" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+task:
+  status: done
+YAML
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/reports"
+  echo "reports: []" > "${SHOGUN_ROOT}/.shogun/queue/reports/${ROLE}_report.yaml"
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q '"decision":"block"'
+  [ -f "$IDLE" ]
+}
+
+@test "stop_hook: does not block when reports array has an entry" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+task:
+  status: done
+YAML
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/reports"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/reports/${ROLE}_report.yaml" <<'YAML'
+reports:
+  - status: done
+    task_id: task_test
+    summary: finished
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -vq '"decision":"block"' || [ -z "$output" ]
+  [ -f "$IDLE" ]
+}

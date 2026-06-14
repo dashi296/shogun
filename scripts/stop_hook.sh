@@ -105,7 +105,23 @@ if [[ "$stop_hook_active" != "true" ]]; then
       else
         REPORT_FILE="${ROOT}/.shogun/queue/reports/${AGENT}_report.yaml"
       fi
-      if [[ ! -f "$REPORT_FILE" ]]; then
+      # レポート未記入判定: ファイル不在だけでなく、shogun init / start --clean が
+      # 事前作成する `reports: []` の空レポートも未記入とみなす（issue #56）。
+      # 正規形式は reports 配列（shogun-agent-status コマンド参照）で、1件以上あれば記入済み。
+      # 後方互換として、reports を持たず status/task_id/summary を直書きした旧形式も記入済み扱い。
+      report_filled=$(node -e '
+        try {
+          const fs = require("fs");
+          const f = process.argv[1];
+          if (!fs.existsSync(f)) { process.stdout.write("no"); process.exit(0); }
+          const yaml = require("js-yaml");
+          const d = yaml.load(fs.readFileSync(f, "utf8")) || {};
+          const reports = Array.isArray(d.reports) ? d.reports : [];
+          const legacy = d.status || d.task_id || d.summary;
+          process.stdout.write((reports.length > 0 || legacy) ? "yes" : "no");
+        } catch(e) { process.stdout.write("no"); }
+      ' -- "$REPORT_FILE" 2>/dev/null || echo "no")
+      if [[ "$report_filled" != "yes" ]]; then
         REPORT_MISSING_MSG="タスクが完了済みですがレポートが未記入です。${AGENT}_report.yaml を記入してから終了してください。"
       fi
     fi

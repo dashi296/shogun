@@ -38,6 +38,20 @@ fi
 # idle 状態へ遷移（busy → idle）
 touch "$FLAG"
 
+# reports 安全網: inbox_watcher が busy 中にスキップした report 通知を idle 復帰時に再提示する。
+# inbox と違い reports には Stop 以外の救済経路がなく、busy 中に握りつぶすと次の更新が
+# 来ない限り永久に気づけないため、ここで pending マーカーを消費して再通知する。
+# マーカー名は inbox_watcher.sh の reports_pending_flag と一致させること（ROOT 非依存）。
+if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
+  REPORTS_PENDING="/tmp/shogun_reports_pending_${SHOGUN_PROJECT_ID}_${AGENT}"
+else
+  REPORTS_PENDING="/tmp/shogun_reports_pending_${AGENT}"
+fi
+if [[ -f "$REPORTS_PENDING" ]]; then
+  rm -f "$REPORTS_PENDING"
+  echo ".shogun/queue/reports/ に下位エージェントの報告が更新されています。集約して上位へ報告してください。"
+fi
+
 # inbox 未読確認（未読があればメッセージを stdout に出力 → Claude Code が次ターンで受信）
 ROOT="${SHOGUN_ROOT:-}"
 [[ -n "$ROOT" ]] || exit 0

@@ -219,7 +219,7 @@ YAML
   AGENT_ID="wakegatetest_$$"
   PANE="testpane"
   SHOGUN_PROJECT_ID=""
-  rm -f "/tmp/shogun_idle_${AGENT_ID}"   # busy
+  rm -f "/tmp/shogun_idle_${AGENT_ID}" "/tmp/shogun_reports_pending_${AGENT_ID}"   # busy
 
   local log; log="$(mktemp)"
   tmux() { printf '%s\n' "$*" >> "$log"; }
@@ -228,8 +228,46 @@ YAML
   wake_up_reports
 
   run cat "$log"
-  rm -f "$log"
+  rm -f "$log" "/tmp/shogun_reports_pending_${AGENT_ID}"
   [ -z "$output" ]
+}
+
+# busy 中にスキップした report 通知は pending マーカーへ記録し、Stop フックが
+# idle 復帰時に再通知できるようにする（次の更新イベントが来なくても取りこぼさない）。
+@test "wake_up_reports: marks pending when the agent is busy" {
+  AGENT_ID="wakegatetest_$$"
+  PANE="testpane"
+  SHOGUN_PROJECT_ID=""
+  rm -f "/tmp/shogun_idle_${AGENT_ID}" "/tmp/shogun_reports_pending_${AGENT_ID}"   # busy
+
+  tmux() { :; }
+  sleep() { :; }
+
+  wake_up_reports
+
+  local exists=1
+  [ -f "/tmp/shogun_reports_pending_${AGENT_ID}" ] && exists=0
+  rm -f "/tmp/shogun_reports_pending_${AGENT_ID}"
+  [ "$exists" -eq 0 ]
+}
+
+@test "wake_up_reports: uses a project-specific pending marker when project_id is set" {
+  AGENT_ID="wakegatetest_$$"
+  PANE="testpane"
+  SHOGUN_PROJECT_ID="wakeproj_$$"
+  rm -f "/tmp/shogun_idle_${SHOGUN_PROJECT_ID}_${AGENT_ID}" \
+        "/tmp/shogun_reports_pending_${SHOGUN_PROJECT_ID}_${AGENT_ID}"   # busy
+
+  tmux() { :; }
+  sleep() { :; }
+
+  wake_up_reports
+
+  local exists=1
+  [ -f "/tmp/shogun_reports_pending_${SHOGUN_PROJECT_ID}_${AGENT_ID}" ] && exists=0
+  rm -f "/tmp/shogun_reports_pending_${SHOGUN_PROJECT_ID}_${AGENT_ID}"
+  SHOGUN_PROJECT_ID=""
+  [ "$exists" -eq 0 ]
 }
 
 @test "wake_up_reports: sends when the agent is idle" {
@@ -247,6 +285,27 @@ YAML
   run cat "$log"
   rm -f "$log" "/tmp/shogun_idle_${AGENT_ID}"
   [ -n "$output" ]
+}
+
+# idle 復帰後に直接通知できたときは、残っている pending マーカーを掃除して
+# Stop フックによる二重通知を避ける。
+@test "wake_up_reports: clears a stale pending marker when sending while idle" {
+  AGENT_ID="wakegatetest_$$"
+  PANE="testpane"
+  SHOGUN_PROJECT_ID=""
+  touch "/tmp/shogun_idle_${AGENT_ID}"                       # idle
+  touch "/tmp/shogun_reports_pending_${AGENT_ID}"            # 以前 busy 中に立った残骸
+
+  tmux() { :; }
+  sleep() { :; }
+
+  wake_up_reports
+
+  local still=1
+  [ -f "/tmp/shogun_reports_pending_${AGENT_ID}" ] && still=0
+  rm -f "/tmp/shogun_idle_${AGENT_ID}" "/tmp/shogun_reports_pending_${AGENT_ID}"
+  # マーカーは消えている（still=1 のまま = ファイル無し）
+  [ "$still" -eq 1 ]
 }
 
 # ────────────────────────────────────────────────────────────

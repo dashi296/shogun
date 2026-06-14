@@ -89,12 +89,32 @@ process.stdout.write(String(msgs.length) + "\n" + subject);
   fi
 }
 
+# reports pending マーカーのパスを返す（busy 中にスキップした report 通知の記録用）。
+# マーカー名は stop_hook.sh の reports 再通知ロジックと一致させること。
+reports_pending_flag() {
+  local agent="$1" project_id="$2"
+  if [[ -n "$project_id" ]]; then
+    echo "/tmp/shogun_reports_pending_${project_id}_${agent}"
+  else
+    echo "/tmp/shogun_reports_pending_${agent}"
+  fi
+}
+
 # reports/ の更新を検知したときペインへ通知する（inbox_write 漏れに対する安全網）
 wake_up_reports() {
-  # busy 中は送らない（wake_up_inbox と同じく描画破損を防ぐ）。reports 監視は元来
-  # inbox_write 漏れの安全網であり、busy でスキップしても次の更新イベントで再発火する。
-  is_agent_idle "$AGENT_ID" "${SHOGUN_PROJECT_ID:-}" || return 0
+  local pending; pending="$(reports_pending_flag "$AGENT_ID" "${SHOGUN_PROJECT_ID:-}")"
 
+  # busy 中は送らない（wake_up_inbox と同じく描画破損を防ぐ）。ただし握りつぶすと
+  # 次の更新イベントが来ない限り永久に気づけない（inbox は Stop フックが必ず再確認
+  # するが reports は別経路で救済がない）。そのため pending マーカーを立て、Stop フック
+  # が idle 復帰時に未処理 report を再通知できるようにする。
+  if ! is_agent_idle "$AGENT_ID" "${SHOGUN_PROJECT_ID:-}"; then
+    touch "$pending" 2>/dev/null || true
+    return 0
+  fi
+
+  # idle 時はここで直接通知するため、残っている pending は不要（Stop の二重通知を防ぐ）。
+  rm -f "$pending" 2>/dev/null || true
   notify_pane "$PANE" \
     ".shogun/queue/reports/ に下位エージェントの報告が更新されました。集約して上位へ報告してください。"
 }

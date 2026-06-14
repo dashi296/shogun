@@ -9,12 +9,14 @@ setup() {
   # テスト固有の role 名を使い、/tmp のフラグ衝突を避ける
   ROLE="stophooktest"
   PROJ="stophookproj"
-  rm -f "/tmp/shogun_idle_${ROLE}" "/tmp/shogun_idle_${PROJ}_${ROLE}"
+  rm -f "/tmp/shogun_idle_${ROLE}" "/tmp/shogun_idle_${PROJ}_${ROLE}" \
+        "/tmp/shogun_reports_pending_${ROLE}" "/tmp/shogun_reports_pending_${PROJ}_${ROLE}"
 }
 
 teardown() {
   rm -rf "$TMP_ROOT"
-  rm -f "/tmp/shogun_idle_${ROLE}" "/tmp/shogun_idle_${PROJ}_${ROLE}"
+  rm -f "/tmp/shogun_idle_${ROLE}" "/tmp/shogun_idle_${PROJ}_${ROLE}" \
+        "/tmp/shogun_reports_pending_${ROLE}" "/tmp/shogun_reports_pending_${PROJ}_${ROLE}"
   unset SHOGUN_ROLE SHOGUN_PROJECT_ID
 }
 
@@ -88,4 +90,33 @@ YAML
   [ "$status" -eq 0 ]
   [ -z "$output" ]
   [ -f "/tmp/shogun_idle_${ROLE}" ]
+}
+
+# ────────────────────────────────────────────────────────────
+# reports 安全網: inbox_watcher が busy 中にスキップした report 通知を
+# idle 復帰時（Stop フック）に再提示し、pending マーカーを消費する。
+# ────────────────────────────────────────────────────────────
+
+@test "stop_hook: re-notifies and clears the reports pending marker" {
+  touch "/tmp/shogun_reports_pending_${ROLE}"
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh"
+  [ "$status" -eq 0 ]
+  # reports の再通知メッセージが stdout に出る
+  [[ "$output" == *"reports"* ]]
+  # 消費済みマーカーは削除されている（次ターンで再提示しない）
+  [ ! -f "/tmp/shogun_reports_pending_${ROLE}" ]
+}
+
+@test "stop_hook: consumes a project-specific reports pending marker" {
+  touch "/tmp/shogun_reports_pending_${PROJ}_${ROLE}"
+  SHOGUN_ROLE="$ROLE" SHOGUN_PROJECT_ID="$PROJ" run bash "${_SCRIPT_DIR}/stop_hook.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"reports"* ]]
+  [ ! -f "/tmp/shogun_reports_pending_${PROJ}_${ROLE}" ]
+}
+
+@test "stop_hook: prints nothing about reports when there is no pending marker" {
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"reports"* ]]
 }

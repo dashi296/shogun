@@ -85,31 +85,62 @@ if [[ -z "$ROOT" ]]; then
   exit 0
 fi
 
+# レポート未記入チェック: task status=done かつレポートファイル未作成の場合にブロック。
+# stop_hook_active=true のときはスキップ（無限ループ防止）。
+REPORT_MISSING_MSG=""
+if [[ "$stop_hook_active" != "true" ]]; then
+  TASK_FILE="${ROOT}/.shogun/queue/tasks/${AGENT}.yaml"
+  if [[ -f "$TASK_FILE" ]]; then
+    task_status=$(node -e '
+      try {
+        const yaml = require("js-yaml");
+        const d = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
+        const t = d.task || d;
+        process.stdout.write(t.status || "");
+      } catch(e) { process.stdout.write(""); }
+    ' -- "$TASK_FILE" 2>/dev/null || echo "")
+    if [[ "$task_status" == "done" ]]; then
+      if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
+        REPORT_FILE="${ROOT}/.shogun/queue/projects/${SHOGUN_PROJECT_ID}/reports/${AGENT}_report.yaml"
+      else
+        REPORT_FILE="${ROOT}/.shogun/queue/reports/${AGENT}_report.yaml"
+      fi
+      if [[ ! -f "$REPORT_FILE" ]]; then
+        REPORT_MISSING_MSG="タスクが完了済みですがレポートが未記入です。${AGENT}_report.yaml を記入してから終了してください。"
+      fi
+    fi
+  fi
+fi
+
 if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
   INBOX="${ROOT}/.shogun/queue/projects/${SHOGUN_PROJECT_ID}/inbox/${AGENT}.yaml"
 else
   INBOX="${ROOT}/.shogun/queue/inbox/${AGENT}.yaml"
 fi
 
-if [[ ! -f "$INBOX" ]]; then
-  emit_reports_plain
-  exit 0
-fi
-
-unread=$(node -e '
+unread=0
+if [[ -f "$INBOX" ]]; then
+  unread=$(node -e '
 const yaml = require("js-yaml");
 const data = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
 const msgs = (data.messages || []).filter(m => m.status === "unread");
 process.stdout.write(String(msgs.length));
 ' -- "$INBOX" 2>/dev/null || echo "0")
+fi
 
-if [[ "$unread" -gt 0 ]] && [[ "$stop_hook_active" != "true" ]]; then
+# ブロック判定: 未読メッセージまたはレポート未記入がある場合、stop_hook_active=false のときのみブロック
+if [[ "$stop_hook_active" != "true" ]] && { [[ "$unread" -gt 0 ]] || [[ -n "$REPORT_MISSING_MSG" ]]; }; then
   # block 経路: stdout を単一 JSON に保つため、reports 再通知があれば reason に畳み込む。
   # reason は node の JSON.stringify でエンコードし、特殊文字が混じっても壊れないようにする。
-  REASON="未読メッセージを処理してから終了せよ"
+  if [[ "$unread" -gt 0 ]]; then
+    REASON="未読メッセージを処理してから終了せよ"
+    [[ -n "$REPORT_MISSING_MSG" ]] && REASON="${REASON}。${REPORT_MISSING_MSG}"
+  else
+    REASON="$REPORT_MISSING_MSG"
+  fi
   [[ -n "$REPORTS_MSG" ]] && REASON="${REPORTS_MSG} ${REASON}"
   node -e 'process.stdout.write(JSON.stringify({decision:"block",reason:process.argv[1]})+"\n")' -- "$REASON"
 else
-  # block しない経路（未読なし・stop_hook_active=true）では reports を plain text で出す。
+  # block しない経路（未読なし・stop_hook_active=true・タスク正常完了）では reports を plain text で出す。
   emit_reports_plain
 fi

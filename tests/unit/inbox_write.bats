@@ -153,3 +153,30 @@ process.stdout.write(String(d.messages.length));
   [ "$status" -eq 1 ]
   [[ "$output" == *"project_id"* ]]
 }
+
+# --- SHOGUN_ROOT 二重 .shogun 検証 (issue #56) ---
+
+@test "inbox_write: rejects SHOGUN_ROOT ending with .shogun" {
+  export SHOGUN_ROLE="taisho"
+  export SHOGUN_ROOT="${TEST_PROJECT}/.shogun"
+  run bash "${SHOGUN_REPO}/scripts/inbox_write.sh" "karo" "subject" "body"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *".shogun"* ]]
+}
+
+@test "inbox_write: rejects SHOGUN_ROOT ending with .shogun/" {
+  export SHOGUN_ROLE="taisho"
+  export SHOGUN_ROOT="${TEST_PROJECT}/.shogun/"
+  run bash "${SHOGUN_REPO}/scripts/inbox_write.sh" "karo" "subject" "body"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *".shogun"* ]]
+}
+
+@test "inbox_write: warns when inbox parent directory does not exist" {
+  export SHOGUN_ROLE="taisho"
+  rm -rf "${TEST_PROJECT}/.shogun/queue/inbox"
+  run bash "${SHOGUN_REPO}/scripts/inbox_write.sh" "karo" "subject" "body"
+  [ "$status" -eq 0 ]
+  [ -f "${TEST_PROJECT}/.shogun/queue/inbox/karo.yaml" ]
+  [[ "$output" == *"[warn]"* ]]
+}

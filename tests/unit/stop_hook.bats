@@ -189,3 +189,88 @@ YAML
   # pending マーカーは消費されている
   [ ! -f "$PENDING" ]
 }
+
+# ────────────────────────────────────────────────────────────
+# issue #56: 完了報告の実行保証・状態突合
+# task status=done かつレポート未記入の場合に block する
+# ────────────────────────────────────────────────────────────
+
+@test "stop_hook: blocks when task is done but report is missing" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+task:
+  status: done
+YAML
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/reports"
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q '"decision":"block"'
+  [ -f "$IDLE" ]
+}
+
+@test "stop_hook: does not block when task is done and report exists" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+task:
+  status: done
+YAML
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/reports"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/reports/${ROLE}_report.yaml" <<'YAML'
+status: done
+task_id: task_test
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -vq '"decision":"block"' || [ -z "$output" ]
+  [ -f "$IDLE" ]
+}
+
+@test "stop_hook: does not block when task is in_progress (no false positive)" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+task:
+  status: in_progress
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -vq '"decision":"block"' || [ -z "$output" ]
+  [ -f "$IDLE" ]
+}
+
+@test "stop_hook: does not block when task file is missing" {
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -vq '"decision":"block"' || [ -z "$output" ]
+  [ -f "$IDLE" ]
+}
+
+@test "stop_hook: skips report check when stop_hook_active is true (loop guard)" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+task:
+  status: done
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":true}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -vq '"decision":"block"' || [ -z "$output" ]
+  [ -f "$IDLE" ]
+}
+
+@test "stop_hook: blocks with combined reason when both inbox unread and report missing" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+task:
+  status: done
+YAML
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/inbox"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/inbox/${ROLE}.yaml" <<'YAML'
+messages:
+  - status: unread
+    subject: test-unread
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  # stdout が単一の有効な JSON であること
+  echo "$output" | node -e 'JSON.parse(require("fs").readFileSync(0,"utf8"))'
+  echo "$output" | grep -q '"decision":"block"'
+}

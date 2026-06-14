@@ -345,12 +345,16 @@ fs.writeFileSync(dest, JSON.stringify(d, null, 2) + "\n");
   local gitignore="${project_dir}/.gitignore"
   local append_src="${templates}/.gitignore.append"
   if [[ -f "$gitignore" ]]; then
-    info ".gitignore に Shogun エントリを追記します。"
-    {
-      echo ""
-      echo "# --- Shogun ---"
-      cat "$append_src"
-    } >> "$gitignore"
+    if grep -q "# --- Shogun ---" "$gitignore" 2>/dev/null; then
+      info ".gitignore には既に Shogun エントリが存在します。スキップします。"
+    else
+      info ".gitignore に Shogun エントリを追記します。"
+      {
+        echo ""
+        echo "# --- Shogun ---"
+        cat "$append_src"
+      } >> "$gitignore"
+    fi
   else
     info ".gitignore が存在しないためスキップしました（手動で追加してください）。"
   fi

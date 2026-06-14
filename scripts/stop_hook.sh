@@ -95,8 +95,23 @@ if [[ "$stop_hook_active" != "true" ]]; then
       try {
         const yaml = require("js-yaml");
         const d = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
-        const t = d.task || d;
-        process.stdout.write(t.status || "");
+        // タスクファイルは 2 スキーマを取りうる: shogun init / start --clean が作り
+        // status 表示も読む tasks 配列形式（tasks: [{ status, ... }]）と、
+        // 実際の割り当てで使われる task 単一オブジェクト形式（task: { status }）。
+        // 配列形式では done のタスクが 1 つでもあれば完了とみなす（issue #56）。
+        let status = "";
+        if (Array.isArray(d.tasks)) {
+          if (d.tasks.some(t => t && t.status === "done")) {
+            status = "done";
+          } else if (d.tasks.length > 0) {
+            const last = d.tasks[d.tasks.length - 1] || {};
+            status = last.status || "";
+          }
+        } else {
+          const t = d.task || d;
+          status = t.status || "";
+        }
+        process.stdout.write(status);
       } catch(e) { process.stdout.write(""); }
     ' -- "$TASK_FILE" 2>/dev/null || echo "")
     if [[ "$task_status" == "done" ]]; then

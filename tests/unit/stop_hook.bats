@@ -244,6 +244,56 @@ YAML
   [ -f "$IDLE" ]
 }
 
+# shogun init / start --clean は tasks: [] 配列形式でタスクファイルを作り、status 表示も
+# tasks 配列を読む。配列形式で done 記録されたタスクも完了として検出する必要がある（issue #56）。
+@test "stop_hook: blocks when a tasks-array entry is done but report is empty" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+tasks:
+  - task_id: task_test
+    status: done
+YAML
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/reports"
+  echo "reports: []" > "${SHOGUN_ROOT}/.shogun/queue/reports/${ROLE}_report.yaml"
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q '"decision":"block"'
+  [ -f "$IDLE" ]
+}
+
+@test "stop_hook: does not block for a tasks-array with no done entry" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+tasks:
+  - task_id: task_test
+    status: in_progress
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -vq '"decision":"block"' || [ -z "$output" ]
+  [ -f "$IDLE" ]
+}
+
+@test "stop_hook: does not block when a tasks-array done entry has a filled report" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+tasks:
+  - task_id: task_test
+    status: done
+YAML
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/reports"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/reports/${ROLE}_report.yaml" <<'YAML'
+reports:
+  - status: done
+    task_id: task_test
+    summary: finished
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -vq '"decision":"block"' || [ -z "$output" ]
+  [ -f "$IDLE" ]
+}
+
 @test "stop_hook: skips report check when stop_hook_active is true (loop guard)" {
   mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
   cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'

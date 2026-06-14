@@ -40,6 +40,16 @@
   - `$SHOGUN_PROJECT_ID` が未設定: `.shogun/queue/reports/`
   - `$SHOGUN_PROJECT_ID` が設定済み: `.shogun/queue/projects/$SHOGUN_PROJECT_ID/reports/`
   - 確認方法: `echo "${SHOGUN_PROJECT_ID:-}"` が空なら前者、値があれば後者を使う
+  - **report は `reports:` 配列に追記する**。各エントリには対象タスクの `task_id` を**必ず**含める。
+    `task_id` は `.shogun/queue/tasks/{自分の役職}.yaml` の `task_id` をそのまま使う。
+    ```yaml
+    reports:
+      - task_id: task_001        # 完了したタスクの task_id（必須）
+        status: done             # done | failed など
+        summary: "作業結果の要約"
+    ```
+    `task_id` を省くと Stop フックが「完了タスクに対応する報告がない」と判定し、
+    アイドル化をブロックして報告のやり直しを促す（過去タスクの報告との取り違え防止）。
 
 ## Memory MCP（クロスセッション永続記憶）
 

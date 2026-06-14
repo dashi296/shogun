@@ -17,6 +17,15 @@ SUBJECT="${2:-}"
 BODY="${3:-}"
 ROOT="${SHOGUN_ROOT:?SHOGUN_ROOT が未設定です}"
 
+# SHOGUN_ROOT 二重 .shogun 検証: ROOT の末尾ディレクトリ名が厳密に .shogun の場合は
+# 誤設定（.shogun 自体を指定している）。foo.shogun のような正当なプロジェクト名を誤検出しない
+# よう、basename で末尾コンポーネントだけを比較する。
+_root_trimmed="${ROOT%/}"
+if [[ "$(basename "$_root_trimmed")" == ".shogun" ]]; then
+  echo "ERROR: SHOGUN_ROOT が .shogun ディレクトリ自体を指しています。.shogun の親ディレクトリを指定してください: ${ROOT}"
+  exit 1
+fi
+
 # パストラバーサル防止: 役職名は英数字・アンダースコア・ハイフンのみ許可
 [[ "$RECIPIENT" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "ERROR: 不正な recipient: ${RECIPIENT}"; exit 1; }
 
@@ -31,6 +40,11 @@ LOCK_FILE="/tmp/shogun_inbox_${SHOGUN_PROJECT_ID:+${SHOGUN_PROJECT_ID}_}${RECIPI
 MSG_ID="msg_$(date +%Y%m%d%H%M%S)_$$"
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 SENDER="${SHOGUN_ROLE:-unknown}"
+
+# 配送先 inbox の親ディレクトリが存在しない場合は警告（mkdir -p は続行）
+if [[ ! -d "$(dirname "$INBOX")" ]]; then
+  echo "[warn] inbox directory does not exist, creating: $(dirname "$INBOX")"
+fi
 
 (
   flock -w 5 200

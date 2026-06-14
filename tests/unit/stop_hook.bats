@@ -189,3 +189,259 @@ YAML
   # pending マーカーは消費されている
   [ ! -f "$PENDING" ]
 }
+
+# ────────────────────────────────────────────────────────────
+# issue #56: 完了報告の実行保証・状態突合
+# task status=done かつレポート未記入の場合に block する
+# ────────────────────────────────────────────────────────────
+
+@test "stop_hook: blocks when task is done but report is missing" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+task:
+  status: done
+YAML
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/reports"
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q '"decision":"block"'
+  [ -f "$IDLE" ]
+}
+
+@test "stop_hook: does not block when task is done and report exists" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+task:
+  status: done
+YAML
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/reports"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/reports/${ROLE}_report.yaml" <<'YAML'
+status: done
+task_id: task_test
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -vq '"decision":"block"' || [ -z "$output" ]
+  [ -f "$IDLE" ]
+}
+
+@test "stop_hook: does not block when task is in_progress (no false positive)" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+task:
+  status: in_progress
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -vq '"decision":"block"' || [ -z "$output" ]
+  [ -f "$IDLE" ]
+}
+
+@test "stop_hook: does not block when task file is missing" {
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -vq '"decision":"block"' || [ -z "$output" ]
+  [ -f "$IDLE" ]
+}
+
+# shogun init / start --clean は tasks: [] 配列形式でタスクファイルを作り、status 表示も
+# tasks 配列を読む。配列形式で done 記録されたタスクも完了として検出する必要がある（issue #56）。
+@test "stop_hook: blocks when a tasks-array entry is done but report is empty" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+tasks:
+  - task_id: task_test
+    status: done
+YAML
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/reports"
+  echo "reports: []" > "${SHOGUN_ROOT}/.shogun/queue/reports/${ROLE}_report.yaml"
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q '"decision":"block"'
+  [ -f "$IDLE" ]
+}
+
+@test "stop_hook: does not block for a tasks-array with no done entry" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+tasks:
+  - task_id: task_test
+    status: in_progress
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -vq '"decision":"block"' || [ -z "$output" ]
+  [ -f "$IDLE" ]
+}
+
+@test "stop_hook: does not block when a tasks-array done entry has a filled report" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+tasks:
+  - task_id: task_test
+    status: done
+YAML
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/reports"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/reports/${ROLE}_report.yaml" <<'YAML'
+reports:
+  - status: done
+    task_id: task_test
+    summary: finished
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -vq '"decision":"block"' || [ -z "$output" ]
+  [ -f "$IDLE" ]
+}
+
+# 複数タスクが同じ report ファイルに蓄積される運用では、古い task の report が残るだけで
+# 新しい done task が報告済み扱いになってしまう。done task の task_id と report を照合する（issue #56）。
+@test "stop_hook: blocks when a done tasks-array entry has no matching report despite older reports" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+tasks:
+  - task_id: task_new
+    status: done
+YAML
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/reports"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/reports/${ROLE}_report.yaml" <<'YAML'
+reports:
+  - status: done
+    task_id: task_old
+    summary: previous task
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q '"decision":"block"'
+  [ -f "$IDLE" ]
+}
+
+@test "stop_hook: blocks when a single-object done task_id has no matching report" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+task:
+  task_id: task_new
+  status: done
+YAML
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/reports"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/reports/${ROLE}_report.yaml" <<'YAML'
+reports:
+  - status: done
+    task_id: task_old
+    summary: previous task
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q '"decision":"block"'
+  [ -f "$IDLE" ]
+}
+
+@test "stop_hook: does not block when the done task_id has a matching report" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+task:
+  task_id: task_new
+  status: done
+YAML
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/reports"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/reports/${ROLE}_report.yaml" <<'YAML'
+reports:
+  - status: done
+    task_id: task_old
+    summary: previous task
+  - status: done
+    task_id: task_new
+    summary: current task
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -vq '"decision":"block"' || [ -z "$output" ]
+  [ -f "$IDLE" ]
+}
+
+# report への task_id 記入を必須化したため、task に task_id がある done タスクに対し、
+# 対応する task_id を持つ report が無ければ（task_id なしの古い report が残るだけでは）ブロックする（issue #56）。
+@test "stop_hook: blocks a done task_id when only a task_id-less report exists" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+task:
+  task_id: task_new
+  status: done
+YAML
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/reports"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/reports/${ROLE}_report.yaml" <<'YAML'
+reports:
+  - status: done
+    summary: finished the work
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q '"decision":"block"'
+  [ -f "$IDLE" ]
+}
+
+@test "stop_hook: skips report check when stop_hook_active is true (loop guard)" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+task:
+  status: done
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":true}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -vq '"decision":"block"' || [ -z "$output" ]
+  [ -f "$IDLE" ]
+}
+
+@test "stop_hook: blocks with combined reason when both inbox unread and report missing" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+task:
+  status: done
+YAML
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/inbox"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/inbox/${ROLE}.yaml" <<'YAML'
+messages:
+  - status: unread
+    subject: test-unread
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  # stdout が単一の有効な JSON であること
+  echo "$output" | node -e 'JSON.parse(require("fs").readFileSync(0,"utf8"))'
+  echo "$output" | grep -q '"decision":"block"'
+}
+
+# shogun init / start --clean は reports: [] の空レポートを事前作成するため、
+# ファイル存在だけで判定すると未記入をブロックできない（issue #56 のリグレッション）。
+@test "stop_hook: blocks when task is done but report has an empty reports array" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+task:
+  status: done
+YAML
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/reports"
+  echo "reports: []" > "${SHOGUN_ROOT}/.shogun/queue/reports/${ROLE}_report.yaml"
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q '"decision":"block"'
+  [ -f "$IDLE" ]
+}
+
+@test "stop_hook: does not block when reports array has an entry" {
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/tasks"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/tasks/${ROLE}.yaml" <<'YAML'
+task:
+  status: done
+YAML
+  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/reports"
+  cat > "${SHOGUN_ROOT}/.shogun/queue/reports/${ROLE}_report.yaml" <<'YAML'
+reports:
+  - status: done
+    task_id: task_test
+    summary: finished
+YAML
+  SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -vq '"decision":"block"' || [ -z "$output" ]
+  [ -f "$IDLE" ]
+}

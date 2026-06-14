@@ -85,31 +85,93 @@ if [[ -z "$ROOT" ]]; then
   exit 0
 fi
 
+# レポート未記入チェック: 完了済み（status=done）タスクに対応するレポートが無い場合にブロック。
+# stop_hook_active=true のときはスキップ（無限ループ防止）。
+REPORT_MISSING_MSG=""
+if [[ "$stop_hook_active" != "true" ]]; then
+  TASK_FILE="${ROOT}/.shogun/queue/tasks/${AGENT}.yaml"
+  if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
+    REPORT_FILE="${ROOT}/.shogun/queue/projects/${SHOGUN_PROJECT_ID}/reports/${AGENT}_report.yaml"
+  else
+    REPORT_FILE="${ROOT}/.shogun/queue/reports/${AGENT}_report.yaml"
+  fi
+  if [[ -f "$TASK_FILE" ]]; then
+    # タスクとレポートを突き合わせ、未報告の完了タスクがあれば "yes"（要ブロック）を返す。
+    # - タスクファイルは 2 スキーマを取りうる: shogun init / start --clean が作り status 表示も
+    #   読む tasks 配列形式（tasks: [{ status, task_id }]）と、割り当てで使う task 単一オブジェクト形式。
+    # - レポートは reports 配列（要素ごとに task_id）。複数タスクが同じファイルに蓄積されるため、
+    #   reports の有無だけでなく done タスクの task_id に対応する report があるかを照合する。
+    #   テンプレートの報告手順で report への task_id 記入を必須化しており、これが task と report を
+    #   一意に対応づける識別子になる（task_id なしの古い report が残るだけでは報告済みにしない）。
+    # - task 側に task_id を持たない旧形式タスクは task_id で照合できないため、reports の記入有無
+    #   （旧形式トップレベル含む）でフォールバック判定する。
+    report_missing=$(node -e '
+      try {
+        const fs = require("fs");
+        const yaml = require("js-yaml");
+        const [taskFile, reportFile] = process.argv.slice(1);
+        const load = (f) => { try { return yaml.load(fs.readFileSync(f, "utf8")) || {}; } catch(e) { return {}; } };
+        const td = load(taskFile);
+        let doneTasks = [];
+        if (Array.isArray(td.tasks)) {
+          doneTasks = td.tasks.filter(t => t && t.status === "done");
+        } else {
+          const t = td.task || td;
+          if (t && t.status === "done") doneTasks = [t];
+        }
+        if (doneTasks.length === 0) { process.stdout.write("no"); process.exit(0); }
+        const rd = fs.existsSync(reportFile) ? load(reportFile) : {};
+        const reports = Array.isArray(rd.reports) ? rd.reports : [];
+        const reportedIds = new Set(reports.map(r => r && r.task_id).filter(Boolean));
+        if (rd.task_id) reportedIds.add(rd.task_id); // 旧形式トップレベル
+        const reportFilled = reports.length > 0 || rd.status || rd.task_id || rd.summary;
+        for (const t of doneTasks) {
+          if (t.task_id) {
+            // task_id を持つ done タスクは対応する task_id の report が必須。
+            if (!reportedIds.has(t.task_id)) { process.stdout.write("yes"); process.exit(0); }
+          } else if (!reportFilled) {
+            // task_id を持たない旧形式タスクは記入有無でフォールバック判定。
+            process.stdout.write("yes"); process.exit(0);
+          }
+        }
+        process.stdout.write("no");
+      } catch(e) { process.stdout.write("no"); }
+    ' -- "$TASK_FILE" "$REPORT_FILE" 2>/dev/null || echo "no")
+    if [[ "$report_missing" == "yes" ]]; then
+      REPORT_MISSING_MSG="タスクが完了済みですがレポートが未記入です。${AGENT}_report.yaml を記入してから終了してください。"
+    fi
+  fi
+fi
+
 if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
   INBOX="${ROOT}/.shogun/queue/projects/${SHOGUN_PROJECT_ID}/inbox/${AGENT}.yaml"
 else
   INBOX="${ROOT}/.shogun/queue/inbox/${AGENT}.yaml"
 fi
 
-if [[ ! -f "$INBOX" ]]; then
-  emit_reports_plain
-  exit 0
-fi
-
-unread=$(node -e '
+unread=0
+if [[ -f "$INBOX" ]]; then
+  unread=$(node -e '
 const yaml = require("js-yaml");
 const data = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
 const msgs = (data.messages || []).filter(m => m.status === "unread");
 process.stdout.write(String(msgs.length));
 ' -- "$INBOX" 2>/dev/null || echo "0")
+fi
 
-if [[ "$unread" -gt 0 ]] && [[ "$stop_hook_active" != "true" ]]; then
+# ブロック判定: 未読メッセージまたはレポート未記入がある場合、stop_hook_active=false のときのみブロック
+if [[ "$stop_hook_active" != "true" ]] && { [[ "$unread" -gt 0 ]] || [[ -n "$REPORT_MISSING_MSG" ]]; }; then
   # block 経路: stdout を単一 JSON に保つため、reports 再通知があれば reason に畳み込む。
   # reason は node の JSON.stringify でエンコードし、特殊文字が混じっても壊れないようにする。
-  REASON="未読メッセージを処理してから終了せよ"
+  if [[ "$unread" -gt 0 ]]; then
+    REASON="未読メッセージを処理してから終了せよ"
+    [[ -n "$REPORT_MISSING_MSG" ]] && REASON="${REASON}。${REPORT_MISSING_MSG}"
+  else
+    REASON="$REPORT_MISSING_MSG"
+  fi
   [[ -n "$REPORTS_MSG" ]] && REASON="${REPORTS_MSG} ${REASON}"
   node -e 'process.stdout.write(JSON.stringify({decision:"block",reason:process.argv[1]})+"\n")' -- "$REASON"
 else
-  # block しない経路（未読なし・stop_hook_active=true）では reports を plain text で出す。
+  # block しない経路（未読なし・stop_hook_active=true・タスク正常完了）では reports を plain text で出す。
   emit_reports_plain
 fi

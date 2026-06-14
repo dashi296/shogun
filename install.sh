@@ -136,6 +136,9 @@ _fresh_install() {
   tmp_dir="$(mktemp -d)"
   if git clone --branch "${INSTALL_VERSION}" --depth 1 "${REPO_URL}" "${tmp_dir}"; then
     if (cd "${tmp_dir}" && npm install --omit=dev --silent); then
+      # エンドユーザーに不要なファイルを削除する（tests/・docs/）
+      # _fresh_install は新規/再インストール両方で呼ばれるため、ここで削除すれば全パスを網羅できる
+      rm -rf "${tmp_dir}/tests" "${tmp_dir}/docs"
       rm -rf "${INSTALL_DIR}"
       mv "${tmp_dir}" "${INSTALL_DIR}"
       log_ok "フレームワーク ${INSTALL_VERSION} を再インストールしました"
@@ -165,6 +168,9 @@ if [[ -d "${INSTALL_DIR}/.git" ]]; then
   log_info "既存のインストールを ${INSTALL_VERSION} に更新します: ${INSTALL_DIR}"
 
   if _try_git_upgrade; then
+    # git checkout で tests/・docs/ が復活するため、アップグレード後にも削除する
+    # sparse-checkout の代わりにこの削除処理で upgrade 後の再出現を防ぐ
+    rm -rf "${INSTALL_DIR}/tests" "${INSTALL_DIR}/docs"
     log_ok "フレームワークを ${INSTALL_VERSION} に更新しました"
   else
     log_warn "git によるバージョン切り替えに失敗しました。フレッシュインストールを試みます..."
@@ -174,6 +180,8 @@ else
   log_info "Shogun ${INSTALL_VERSION} をインストールします: ${INSTALL_DIR}"
   mkdir -p "$(dirname "${INSTALL_DIR}")"
   git clone --branch "${INSTALL_VERSION}" --depth 1 "${REPO_URL}" "${INSTALL_DIR}"
+  # エンドユーザーに不要なファイルを削除する（tests/・docs/）
+  rm -rf "${INSTALL_DIR}/tests" "${INSTALL_DIR}/docs"
   log_ok "フレームワーク ${INSTALL_VERSION} をインストールしました"
 fi
 

@@ -83,6 +83,70 @@ if (d.hookSpecificOutput.hookEventName !== "SessionStart") process.exit(1);
   rm -f "/tmp/shogun_idle_${proj}_${role}"
 }
 
+# --- コールドスタート時の inbox 未読サーフェス ---
+# watcher は claude より先に起動するため、SessionStart が idle フラグを作る前に
+# inbox が更新されると wake_up_inbox が busy 判定で通知を捨てる。起動直後はまだ Stop も
+# 走らず回収経路が無いため、idle 化する SessionStart で inbox 未読を additionalContext に
+# 載せて初回タスクの取りこぼしを防ぐ（2 回目以降は Stop フックが毎ターン再提示する）。
+
+@test "inject_role: surfaces inbox unread in additionalContext on cold start" {
+  mkdir -p "${TEST_PROJECT}/.shogun/queue/inbox"
+  cat > "${TEST_PROJECT}/.shogun/queue/inbox/taisho.yaml" <<'YAML'
+messages:
+  - status: unread
+    subject: first-task
+YAML
+  export SHOGUN_ROLE="taisho"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"startup"}'
+  [ "$status" -eq 0 ]
+  ctx="$(echo "$output" | _additional_context)"
+  [[ "$ctx" == *"未読"* ]]
+}
+
+@test "inject_role: no inbox notice when there are no unread messages" {
+  mkdir -p "${TEST_PROJECT}/.shogun/queue/inbox"
+  cat > "${TEST_PROJECT}/.shogun/queue/inbox/taisho.yaml" <<'YAML'
+messages:
+  - status: read
+    subject: done
+YAML
+  export SHOGUN_ROLE="taisho"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"startup"}'
+  [ "$status" -eq 0 ]
+  ctx="$(echo "$output" | _additional_context)"
+  [[ "$ctx" != *"未読"* ]]
+}
+
+@test "inject_role: surfaces project-specific inbox unread on cold start" {
+  local proj="injinboxproj_$$"
+  mkdir -p "${TEST_PROJECT}/.shogun/queue/projects/${proj}/inbox"
+  cat > "${TEST_PROJECT}/.shogun/queue/projects/${proj}/inbox/taisho.yaml" <<'YAML'
+messages:
+  - status: unread
+    subject: first-task
+YAML
+  export SHOGUN_ROLE="taisho" SHOGUN_PROJECT_ID="$proj"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"startup"}'
+  [ "$status" -eq 0 ]
+  ctx="$(echo "$output" | _additional_context)"
+  rm -f "/tmp/shogun_idle_${proj}_taisho"   # cleanup はアサーションより前に（失敗をマスクしないため）
+  [[ "$ctx" == *"未読"* ]]
+}
+
+@test "inject_role: does NOT surface inbox unread during compact (busy, no interruption)" {
+  mkdir -p "${TEST_PROJECT}/.shogun/queue/inbox"
+  cat > "${TEST_PROJECT}/.shogun/queue/inbox/taisho.yaml" <<'YAML'
+messages:
+  - status: unread
+    subject: mid-work
+YAML
+  export SHOGUN_ROLE="taisho"
+  run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"compact"}'
+  [ "$status" -eq 0 ]
+  ctx="$(echo "$output" | _additional_context)"
+  [[ "$ctx" != *"未読"* ]]
+}
+
 # --- source=compact では idle フラグを操作しない（busy 中の出力破損を防ぐ） ---
 # compact 継続ターンでは UserPromptSubmit(mark_busy) が走らず、ここで idle フラグを
 # 立てると作業中(busy)のまま idle と誤判定され、busy ペインへの send-keys 注入が再発する。

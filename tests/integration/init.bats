@@ -308,3 +308,13 @@ process.stdout.write(JSON.stringify(d.persona != null && d.persona.sengoku === t
 "
   [ "$output" = "true" ]
 }
+
+# --- gitignore idempotency ---
+
+@test "init: running init twice keeps exactly one Shogun section in .gitignore" {
+  echo "node_modules/" > .gitignore
+  shogun init
+  shogun init
+  run grep -c "# --- Shogun ---" .gitignore
+  [ "$output" = "1" ]
+}

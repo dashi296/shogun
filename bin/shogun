@@ -152,6 +152,56 @@ stop_project_watchers() {
   pkill -f "fswatch .*${root_re}/\.shogun/queue" 2>/dev/null || true
 }
 
+# セッションと孤児 watcher を停止する（cmd_stop / cmd_reset 共通処理）。
+# 引数: include_legacy(0|1)  結果: _SHOGUN_STOPPED_COUNT に停止セッション数を設定する。
+stop_sessions_and_watchers() {
+  local include_legacy="${1:-0}"
+  local project_name
+  project_name="$(read_project_name "${SHOGUN_ROOT}/.shogun/config.yaml")"
+  local session_taisho session_multi
+  read -r session_taisho session_multi <<< "$(project_session_names "$project_name" "$SHOGUN_ROOT")" || return 1
+
+  local sessions=("$session_taisho" "$session_multi")
+  if [[ "$include_legacy" -eq 1 ]]; then
+    local legacy_session_taisho legacy_session_multi
+    read -r legacy_session_taisho legacy_session_multi <<< "$(legacy_project_session_names "$project_name")" || return 1
+    sessions+=("$legacy_session_taisho" "$legacy_session_multi")
+  fi
+
+  _SHOGUN_STOPPED_COUNT=0
+  local session
+  for session in "${sessions[@]}"; do
+    if tmux kill-session -t "$(tmux_exact_target "$session")" 2>/dev/null; then
+      info "セッション ${session} を終了しました。"
+      _SHOGUN_STOPPED_COUNT=$(( _SHOGUN_STOPPED_COUNT + 1 ))
+    else
+      info "セッション ${session} は停止済みです。"
+    fi
+  done
+
+  stop_project_watchers "$session_taisho" "$session_multi" "$SHOGUN_ROOT"
+}
+
+# キューファイルを空配列にリセットする（cmd_start --clean / cmd_reset 共通処理）。
+# バックアップは行わない。引数: ashigaru_count
+reset_queue_files() {
+  local ashigaru_count="$1"
+  echo "commands: []" > "${SHOGUN_ROOT}/.shogun/queue/shogun_to_karo.yaml"
+  local reset_agents
+  read -ra reset_agents <<< "$(ashigaru_agents "$ashigaru_count")"
+  for agent in "${reset_agents[@]}"; do
+    echo "messages: []" > "${SHOGUN_ROOT}/.shogun/queue/inbox/${agent}.yaml"
+    echo "tasks: []"    > "${SHOGUN_ROOT}/.shogun/queue/tasks/${agent}.yaml"
+    echo "reports: []"  > "${SHOGUN_ROOT}/.shogun/queue/reports/${agent}_report.yaml"
+    case "$agent" in
+      ashigaru*)
+        mkdir -p "${SHOGUN_ROOT}/.shogun/queue/reviews"
+        echo "reviews: []" > "${SHOGUN_ROOT}/.shogun/queue/reviews/${agent}_review.yaml"
+        ;;
+    esac
+  done
+}
+
 # ════════════════════════════════════════════════════════════
 # settings.json マージ（init / upgrade 共有）
 # ════════════════════════════════════════════════════════════
@@ -622,37 +672,15 @@ process.stdout.write([
     mkdir -p "$backup_dir"
     cp -r "${SHOGUN_ROOT}/.shogun/queue/." "${backup_dir}/"
 
-    # キューリセット（ashigaru_count は cmd_start 冒頭で読み込み済み）
-    echo "commands: []" > "${SHOGUN_ROOT}/.shogun/queue/shogun_to_karo.yaml"
-    local clean_agents
-    read -ra clean_agents <<< "$(ashigaru_agents "$ashigaru_count")"
-    for agent in "${clean_agents[@]}"; do
-      echo "messages: []" > "${SHOGUN_ROOT}/.shogun/queue/inbox/${agent}.yaml"
-      echo "tasks: []"    > "${SHOGUN_ROOT}/.shogun/queue/tasks/${agent}.yaml"
-      echo "reports: []"  > "${SHOGUN_ROOT}/.shogun/queue/reports/${agent}_report.yaml"
-      case "$agent" in
-        ashigaru*)
-          mkdir -p "${SHOGUN_ROOT}/.shogun/queue/reviews"
-          echo "reviews: []" > "${SHOGUN_ROOT}/.shogun/queue/reviews/${agent}_review.yaml"
-          ;;
-      esac
-    done
+    reset_queue_files "$ashigaru_count"
     success "キューをリセットしました。"
   fi
 
-  # 既存セッションを終了
-  tmux kill-session -t "$(tmux_exact_target "$session_taisho")" 2>/dev/null && info "既存セッション ${session_taisho} を終了" || true
-  tmux kill-session -t "$(tmux_exact_target "$session_multi")"  2>/dev/null && info "既存セッション ${session_multi} を終了"  || true
-
-  # 前回起動分の孤児 watcher / fswatch が残ると同じ inbox を二重監視するため停止する
-  stop_project_watchers "$session_taisho" "$session_multi" "$SHOGUN_ROOT"
-
-  if [[ "$legacy_cleanup" == "true" ]]; then
-    local legacy_session_taisho legacy_session_multi
-    read -r legacy_session_taisho legacy_session_multi <<< "$(legacy_project_session_names "$project_name")" || exit 1
-    tmux kill-session -t "$(tmux_exact_target "$legacy_session_taisho")" 2>/dev/null && info "既存セッション ${legacy_session_taisho} を終了" || true
-    tmux kill-session -t "$(tmux_exact_target "$legacy_session_multi")"  2>/dev/null && info "既存セッション ${legacy_session_multi} を終了"  || true
-  fi
+  # 既存セッションと孤児 watcher を停止
+  local _include_legacy_int=0
+  [[ "$legacy_cleanup" == "true" ]] && _include_legacy_int=1
+  _SHOGUN_STOPPED_COUNT=0
+  stop_sessions_and_watchers "$_include_legacy_int"
 
   # claude コマンドのオプション
   # .shogun/config.yaml で startup.skip_permissions: true を明示した場合のみ付与
@@ -836,41 +864,81 @@ cmd_stop() {
   local project_name
   project_name="$(read_project_name "$config_file")"
 
-  local session_taisho session_multi
-  read -r session_taisho session_multi <<< "$(project_session_names "$project_name" "$SHOGUN_ROOT")" || exit 1
-  local sessions=("$session_taisho" "$session_multi")
-
-  if [[ "$include_legacy" -eq 1 ]]; then
-    local legacy_session_taisho legacy_session_multi
-    read -r legacy_session_taisho legacy_session_multi <<< "$(legacy_project_session_names "$project_name")" || exit 1
-    sessions+=("$legacy_session_taisho" "$legacy_session_multi")
-  fi
-
-  local stopped=0
-  local session
-
   info "プロジェクト: ${project_name}"
   if [[ "$include_legacy" -eq 1 ]]; then
     info "legacy セッションも停止対象に含めます。"
   fi
 
-  for session in "${sessions[@]}"; do
-    if tmux kill-session -t "$(tmux_exact_target "$session")" 2>/dev/null; then
-      info "セッション ${session} を終了しました。"
-      stopped=1
-    else
-      info "セッション ${session} は停止済みです。"
-    fi
-  done
+  _SHOGUN_STOPPED_COUNT=0
+  stop_sessions_and_watchers "$include_legacy"
 
-  # セッション終了では落ちない孤児 watcher / fswatch を明示的に停止する
-  stop_project_watchers "$session_taisho" "$session_multi" "$SHOGUN_ROOT"
-
-  if [[ "$stopped" -eq 1 ]]; then
+  if [[ "$_SHOGUN_STOPPED_COUNT" -gt 0 ]]; then
     success "Shogun を停止しました。"
   else
     success "Shogun はすでに停止しています。"
   fi
+}
+
+# ════════════════════════════════════════════════════════════
+# shogun reset [-y|--yes]
+# ════════════════════════════════════════════════════════════
+cmd_reset() {
+  require_init
+
+  local force=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -y|--yes)
+        force=true
+        shift
+        ;;
+      *)
+        error "不明なオプション: $1"
+        echo "Usage: shogun reset [-y|--yes]"
+        exit 1
+        ;;
+    esac
+  done
+
+  local config_file="${SHOGUN_ROOT}/.shogun/config.yaml"
+  local project_name ashigaru_count
+  project_name="$(read_project_name "$config_file")"
+  ashigaru_count="$(read_ashigaru_count "$config_file")"
+
+  warn "shogun reset: キューを完全に消去し、エージェントを強制停止します。"
+  warn "プロジェクト: ${project_name}"
+
+  if [[ "$force" != "true" ]]; then
+    echo -n "実行しますか? [y/N]: "
+    local answer
+    read -r answer
+    case "$answer" in
+      y|Y) ;;
+      *)
+        info "キャンセルしました。"
+        return 0
+        ;;
+    esac
+  fi
+
+  # セッションと孤児 watcher を停止
+  _SHOGUN_STOPPED_COUNT=0
+  stop_sessions_and_watchers 0
+
+  # キューリセット（バックアップなし）
+  reset_queue_files "$ashigaru_count"
+  success "キューをリセットしました。"
+
+  # /tmp フラグ掃除（flag_names.sh の _shogun_flag_root_key と同じアルゴリズム）
+  # shellcheck source=scripts/flag_names.sh
+  source "${SHOGUN_BIN_DIR}/scripts/flag_names.sh"
+  local root_key
+  root_key="$(_shogun_flag_root_key)"
+  rm -f /tmp/shogun_idle_${root_key}_* 2>/dev/null || true
+  rm -f /tmp/shogun_reports_pending_${root_key}_* 2>/dev/null || true
+  info "/tmp フラグを掃除しました。"
+
+  success "リセット完了。再開するには shogun start を実行してください。"
 }
 
 # ════════════════════════════════════════════════════════════
@@ -1266,6 +1334,7 @@ cmd_help() {
   echo -e "                                エージェントを tmux で起動"
   echo -e "  ${CYAN}attach${RESET} [taisho|multi]          tmux セッションに接続"
   echo -e "  ${CYAN}stop${RESET} (alias: ${CYAN}kijin${RESET}（帰陣）) [--legacy]   エージェントの tmux セッションを終了"
+  echo -e "  ${CYAN}reset${RESET} [-y|--yes]               エージェントを強制停止してキューを初期化"
   echo -e "  ${CYAN}task${RESET} \"<説明>\" [--priority P]  新規タスクを投入"
   echo -e "  ${CYAN}status${RESET}                       現在の状態を表示"
   echo -e "  ${CYAN}logs${RESET} [--agent <名前>]         ログを表示"
@@ -1297,6 +1366,7 @@ case "$COMMAND" in
   start|shutsujin)   cmd_start "$@" ;;
   attach)            cmd_attach "$@" ;;
   stop|kijin)        cmd_stop "$@" ;;
+  reset)             cmd_reset "$@" ;;
   status)  cmd_status "$@" ;;
   logs)    cmd_logs "$@" ;;
   doctor)  cmd_doctor "$@" ;;

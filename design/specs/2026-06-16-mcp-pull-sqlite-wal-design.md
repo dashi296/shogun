@@ -3,7 +3,7 @@
 - 日付: 2026-06-16
 - ステータス: ドラフト（実装判断前）
 - 対象: Shogun フレームワークのエージェント間通信（配信層・保管層）
-- 関連 issue: [#98](https://github.com/dashi296/shogun/issues/98)
+- 関連 issue: [#98](https://github.com/dashi296/shogun/issues/98), [#111](https://github.com/dashi296/shogun/issues/111)
 
 ## 背景
 
@@ -123,6 +123,87 @@ MCP サーバを `.mcp.json` でプロジェクトに配布し、Claude が自�
 - **送出タイミング**: `is_agent_idle` が true のときのみ（案A と同じ idle フラグ流用）
 - **既存流用**: `flag_names.sh` の `shogun_idle_flag` / `mark_busy.sh` / `stop_hook.sh` の idle 管理ロジックはそのまま使える
 
+### report_poll の allowlist セマンティクス（階層バイパス防止）
+
+> 関連 issue: [#111](https://github.com/dashi296/shogun/issues/111)
+
+#### 現行の「階層フィルタ」責務
+
+現行では `scripts/inbox_watcher.sh` の `should_wake_on_report` と、`shogun start` が設定する
+`SHOGUN_REPORT_SOURCES` 環境変数が組み合わさって**報告集約の階層を強制**している。
+
+```bash
+# inbox_watcher.sh: Taisho の起動例（bin/shogun が設定）
+# SHOGUN_REPORT_SOURCES=karo  →  Karo の集約報告にのみ反応
+should_wake_on_report() {
+  local base="$1" sources="$2" src
+  [[ "$base" == *_report.yaml ]] || return 1
+  for src in $sources; do
+    [[ "$base" == "${src}_report.yaml" ]] && return 0
+  done
+  return 1
+}
+```
+
+これにより Taisho は Ashigaru の個別報告では起動せず、必ず Karo の集約報告を経由する。
+MCP プル型では任意のエージェントが `report_poll(sources=["ashigaru1"])` を呼べば
+Karo を介さずに直接 Ashigaru の報告を取得でき、この階層が崩れる。
+
+#### 設計オプション比較
+
+| オプション | 概要 | 利点 | 欠点 |
+|---|---|---|---|
+| **(A) MCP サーバ側 role-based AC** | 呼び出し元の `from_role` に応じてサーバが `sources` フィルタを強制する。`SHOGUN_REPORT_SOURCES` を起動時設定としてサーバに渡す | 技術的強制。instructions に依存しない。既存 env 変数を継承可能 | MCP サーバの実装コスト増。role 認証が必要 |
+| **(B) instructions での規約定義** | 役職ごとに呼び出せる `sources` の範囲を `instructions/*.md` に記載し、エージェントが自律的に守る | 実装コスト最小 | 技術的強制がないため逸脱が検知できない |
+| **(C) SHOGUN_REPORT_SOURCES を MCP 設定として継承** | サーバ起動時に `SHOGUN_REPORT_SOURCES` を環境変数として渡し、サーバが呼び出し元問わずフィルタを適用する | 既存の `bin/shogun` 設定ロジックをほぼ流用できる | グローバル1プロセス構成を前提とした場合は全呼び出しに同一フィルタになる（役職ごとに個別プロセスを起動すれば役職別フィルタも実現可能だが、その場合は Option A と実質同一になる） |
+
+#### 推奨: オプション (A) MCP サーバ側 role-based AC
+
+**推奨理由:**
+- `should_wake_on_report` の「技術的強制」という性質を MCP 層でも維持できる（単なる規約ではなくサーバが強制）
+- `SHOGUN_REPORT_SOURCES` の命名・値をサーバ起動設定として継承することで、`bin/shogun` 側の変更を最小化できる（`shogun start` で既に役職ごとに異なる値を設定している実績がある）
+- オプション (C) との差分は「`from_role` の真正性をサーバが検証するか否か」であり、実装コストの差は小さい
+
+**from_role の真正性担保（Option A の実装方式）:**
+
+MCP プロトコルには呼び出し元エージェントを認証する組み込み機構がないため、**MCP サーバを役職ごとに1プロセス起動し、起動引数（`--role=karo` 等）でサーバが自分の管轄 role を固定する**方式を採る。
+
+```
+# bin/shogun が役職ごとに個別の MCP サーバプロセスを起動（概念図）
+shogun-mcp-server --role=taisho --allowed-sources="karo"       # Taisho 用
+shogun-mcp-server --role=karo   --allowed-sources="gunshi metsuke ashigaru1 ..."  # Karo 用
+```
+
+各サーバプロセスは自分が管轄する role の `report_poll` リクエストのみを受け付け、
+許可された `sources` 以外のデータを返さない。呼び出し元が `from_role` を引数で渡す設計は採らない（詐称可能なため）。
+Claude の `.mcp.json` にはそれぞれの役職用サーバが設定され、エージェントは自分の role のサーバに接続する。
+
+この方式は Option C と実質同一の環境変数継承を使いながら、サーバプロセス分離によって技術的強制を実現する。
+
+#### allowlist 設計（役職ごとの poll 可能 src_role）
+
+| 役職（呼び出し元） | poll 可能な src_role | 現行の対応 |
+|---|---|---|
+| **Taisho** | `["karo"]` のみ | `SHOGUN_REPORT_SOURCES=karo` |
+| **Karo** | `["gunshi", "metsuke", "ashigaru1", "ashigaru2", ...]`（下位全員） | `SHOGUN_REPORT_SOURCES="gunshi metsuke ashigaru1 ..."` |
+| **Metsuke** | `["ashigaru1", "ashigaru2", ...]`（レビュー対象 Ashigaru） | 監視なし（現行未実装。`*_review.yaml` は Ashigaru が直接書き込む。`SHOGUN_REPORT_SOURCES` は Metsuke に設定されない） |
+| **Ashigaru** | `[]`（poll 権限なし。自分の report を submit するのみ） | reports/ への書き込みのみ |
+| **Gunshi** | 役職定義に依存（未確定） | — |
+
+`report_poll` を受け取った MCP サーバは、サーバプロセス起動時の `--role` 引数で固定された
+管轄 role（リクエスト引数による `from_role` 渡しは採らない）と上記 allowlist を照合し、
+`sources` に含まれる `src_role` のうち許可されたものだけを返す。
+
+#### project_id スコープとの関係
+
+`report_poll(sources, project_id?)` の `project_id` は**保管層のスコープ**（どの DB or テーブルを見るか）を決定し、allowlist（誰が誰の report を見られるか）とは直交する概念として扱う。
+
+- `project_id` を指定すると `.shogun/queue/projects/{project_id}/queue.db` のデータのみを対象とする
+- allowlist フィルタはその後に適用する（`project_id` フィルタ → allowlist フィルタの順）
+- `project_id` 未指定はデフォルト DB を対象とし、同じ allowlist が適用される
+
+両フィルタは直交するため適用順序は最終結果に影響しない。`project_id` フィルタを先にすることで DB クエリ（WHERE 句）レベルでデータを絞り込み、allowlist フィルタをアプリケーションレベルで適用する順序が実装上自然なため、上記の順序を採用する。
+
 ## 確定・未確定の判断
 
 | 論点 | 判断 | 備考 |
@@ -134,6 +215,7 @@ MCP サーバを `.mcp.json` でプロジェクトに配布し、Claude が自�
 | MCP サーバのスコープ | **未確定** | プロジェクト単位1プロセス vs グローバル1プロセス + project_id スコープ |
 | 移行戦略（YAML との共存期） | **未確定** | 段階移行かハードカットオーバーか |
 | ヘッドレス/CI での MCP 不在 | **未確定** | 起動経路の差異・フォールバック方針 |
+| report_poll の allowlist 方式 | **確定（推奨 A）** | MCP サーバを役職ごとに1プロセス起動し `--role` 引数で管轄 role を固定することで技術的強制を実現。`SHOGUN_REPORT_SOURCES` を起動設定として継承。役職ごとの poll 可能 src_role は上記テーブルのとおり |
 
 ## 案A との比較
 

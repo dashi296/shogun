@@ -147,6 +147,19 @@ teardown() {
   [ "$output" = "reviews: []" ]
 }
 
+@test "reset -y: clears project-specific queue subtree" {
+  # SHOGUN_PROJECT_ID 経由で書かれる project 別キュー（残ると古い状態が再利用される）
+  local proj_dir=".shogun/queue/projects/myproject"
+  mkdir -p "${proj_dir}/inbox" "${proj_dir}/reports"
+  printf 'messages:\n  - id: msg_old\n    status: unread\n' > "${proj_dir}/inbox/taisho.yaml"
+  printf 'reports:\n  - id: rep_old\n' > "${proj_dir}/reports/ashigaru1_report.yaml"
+
+  run shogun reset -y
+  [ "$status" -eq 0 ]
+
+  [ ! -e ".shogun/queue/projects/myproject" ]
+}
+
 @test "reset --yes: resets queue (long form option)" {
   shogun task "テストタスク" >/dev/null
 

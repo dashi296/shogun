@@ -200,6 +200,12 @@ reset_queue_files() {
         ;;
     esac
   done
+
+  # SHOGUN_PROJECT_ID 経由で書かれる project 別キュー（inbox_write.sh / 各フックが
+  # .shogun/queue/projects/<id>/ 配下に書き込む）も丸ごと消去する。残すと同じ
+  # project ID で再開した際に古い未読メッセージや report が再利用されてしまう（#108）。
+  # ディレクトリは agent 再開時に mkdir -p でオンデマンド再生成される。
+  rm -rf "${SHOGUN_ROOT}/.shogun/queue/projects"
 }
 
 # ════════════════════════════════════════════════════════════

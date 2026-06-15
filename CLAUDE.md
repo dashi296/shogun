@@ -24,10 +24,10 @@ Shogun は AI エージェントを武家社会の階層構造で統率する、
 | ディレクトリ / ファイル | 役割 |
 |------------------------|------|
 | `bin/` | グローバル CLI 本体（`shogun`）。`init` / `start` / `task` / `status` などのサブコマンドを実装。 |
-| `scripts/` | **フレームワーク実行時のランタイムスクリプト**。`shogun start` で起動したエージェントが実際に使う。例: `inbox_write.sh`（エージェント間メッセージ送信）、`inbox_watcher.sh`（ファイル監視 → tmux wake-up）。 |
+| `scripts/` | **フレームワーク実行時のランタイムスクリプト**。`shogun start` で起動したエージェントが実際に使う。エージェント間通信系（`inbox_write.sh`：メッセージ送信、`inbox_watcher.sh`：ファイル監視 → tmux wake-up）と、Claude Code フック系（`inject_role.sh`・`stop_hook.sh`・`mark_busy.sh`）、共有ヘルパー（`flag_names.sh`：busy/idle フラグ名の単一情報源）から成る。フックの呼び出し経路は後述の「フック機構」を参照。 |
 | `.github/scripts/` | **リポジトリ管理用の開発ツール**。リリース作業など、フレームワークの実行とは無関係に開発者・CI が使う。例: `release.sh`。 |
 | `.github/workflows/` | GitHub Actions のワークフロー定義（`release.yml` など）。 |
-| `templates/` | `shogun init` でユーザーのプロジェクトにコピーされる雛形。エージェント用の `CLAUDE.md`・`instructions/`・`config/settings.yaml` などを含む。 |
+| `templates/` | `shogun init` でユーザーのプロジェクトにコピーされる雛形。エージェント用の `CLAUDE.md`・`instructions/`・`config/settings.yaml`・`.claude/settings.json`（フック定義）・`dashboard.md`（進捗ボード雛形）・`memory/`（永続記憶）などを含む。 |
 | `tests/unit/` | `scripts/*.sh` の関数レベルのテスト（bats）。 |
 | `tests/integration/` | `bin/shogun` サブコマンドの振る舞いのテスト（bats）。 |
 | `tests/bats/` | テストランナー bats-core（git submodule）。直接編集しない。 |
@@ -44,6 +44,23 @@ Shogun は AI エージェントを武家社会の階層構造で統率する、
   （`shogun start` 後のランタイムで呼ばれる。`SHOGUN_ROOT` などの環境変数に依存する）
 - **リポジトリの開発・運用で使うもの** → `.github/scripts/`
   （リリース、CI 補助など。フレームワークのランタイムからは呼ばれない）
+
+## フック機構
+
+エージェントの自律実行と状態管理は、Claude Code の**フック**で実現している。
+フック定義は `templates/.claude/settings.json` にあり、`shogun init` で各プロジェクトの
+`.claude/settings.json` にコピーされる。各フックは `$SHOGUN_BIN_DIR/scripts/` 配下の
+スクリプトを呼び出す（`SHOGUN_BIN_DIR` は `shogun start` が自動設定）。
+
+| フックイベント | 呼び出すスクリプト | 役割 |
+|----------------|--------------------|------|
+| `SessionStart` | `scripts/inject_role.sh` | 起動 / resume / clear / compact のたびに、役職アイデンティティと役割定義を `additionalContext` として注入する。 |
+| `Stop` | `scripts/stop_hook.sh` | ターン完了時に idle フラグを立て、inbox 未読があれば自己 wake-up メッセージを出力して自律継続を担保する（#55・#86）。 |
+| `UserPromptSubmit` | `scripts/mark_busy.sh` | ターン開始時に idle フラグを削除して busy 状態へ遷移し、busy/idle 判定を正確に保つ。 |
+
+busy/idle・reports pending フラグの**命名は `scripts/flag_names.sh` に集約**されており、
+フックスクリプト群と `inbox_watcher.sh`、テストはこれを source して同じ命名規則を共有する。
+フック系スクリプトを変更するときは、フラグ名の単一情報源である `flag_names.sh` との整合に注意する。
 
 ## 開発時のルール
 

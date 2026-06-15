@@ -35,6 +35,9 @@ Shogun は Claude Code などのAIエージェントを**武家社会の階層�
 - 複数プロジェクトを同時に管理（`.shogun/` はプロジェクト毎に独立）
 - `shogun init` したプロジェクトならどこでも `shogun task` が使える
 - エージェントがポーリングなしでメッセージを受信（fswatch/inotifywait）
+- 戦国風ペルソナ（武家口調）でターミナル出力を演出（`persona.sengoku` でトグル）
+- Stop フックによる強制継続でエージェントの自律実行を担保
+- Agent Self-Watch — 無応答エージェントを3段階で自動復旧（`escalation_policy`、デフォルト無効）
 
 ## アーキテクチャ
 
@@ -55,6 +58,11 @@ Karo（家老）── PM、タスク分解・割り当て
 `fswatch`（macOS）/ `inotifywait`（Linux）がファイル変更を検知して
 エージェントを wake-up するため、ポーリングは不要です。
 
+各エージェントは Claude Code の**フック**で挙動を制御します。`SessionStart` で役職を注入し、
+`Stop` でターン完了を検知して未処理タスクがあれば自律的に継続、`UserPromptSubmit` で
+busy/idle 状態を更新します。無応答が続いたエージェントは `escalation_policy` を有効にすると
+Agent Self-Watch が催促・中断・リセットの3段階で自動復旧します。
+
 ## 複数プロジェクトの並列運用
 
 ```bash
@@ -71,13 +79,13 @@ shogun start   # tmux: taisho-project-b-<hash>, multiagent-project-b-<hash>（�
 shogun init                   # 現在のディレクトリを初期化（.shogun/ 作成）
 shogun task "説明"            # タスク投入
 shogun task "説明" --priority high
-shogun start                  # エージェント起動
+shogun start                  # エージェント起動（別名: shutsujin（出陣））
 shogun start --clean          # キューをリセットして起動
 shogun start --count 5        # Ashigaru を5人で起動
 shogun start --setup          # tmux セッションのみ作成（エージェント未起動）
 shogun attach                 # Taisho セッションに接続
 shogun attach multi           # マルチエージェントセッションに接続
-shogun stop                   # エージェント停止
+shogun stop                   # エージェント停止（別名: kijin（帰陣））
 shogun stop --legacy          # hash 導入前の legacy tmux セッションも停止
 shogun start --legacy-cleanup # 起動前に hash 導入前の legacy tmux セッションも停止
 shogun status                 # 現在の戦況確認
@@ -95,9 +103,32 @@ agents:
   ashigaru_count: 3    # 足軽の人数 (1-7)
   taisho_model: opus   # 大将のモデル
   worker_model: sonnet # 足軽・軍師・目付のモデル
+
+# 戦国風口調のトグル（false にすると通常口調）
+persona:
+  sengoku: true
+
+# Bloom's Taxonomy に基づくエージェントルーティング基準
+# L1: 記憶 / L2: 理解 / L3: 適用 / L4: 分析 / L5: 評価 / L6: 創造
+capability_tiers:
+  ashigaru:
+    bloom_max: 3       # L1-L3: 定型実装・既知手順・単純変更
+  gunshi:
+    bloom_min: 4       # L4-L6: 設計・リスク分析・新規考案
+
 startup:
   skip_permissions: false  # true にすると --dangerously-skip-permissions が付与される
+
+# Agent Self-Watch（無応答エージェントの3段階自動復旧）
+escalation_policy:
+  enabled: false
+  phase1_nudge_sec: 300      # 5分: 催促メッセージを送る
+  phase2_interrupt_sec: 600  # 10分: Ctrl-C で中断
+  phase3_clear_sec: 900      # 15分: /clear でリセット
 ```
+
+設定項目の全量は `.shogun/config.yaml`（テンプレートは
+[`templates/config/settings.yaml`](templates/config/settings.yaml)）を参照してください。
 
 ## エージェントのカスタマイズ
 

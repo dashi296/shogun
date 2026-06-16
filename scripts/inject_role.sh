@@ -56,31 +56,24 @@ fi
 INBOX_NOTICE=""
 if [[ "$HOOK_SOURCE" != "compact" ]]; then
   _PROJECT_ID="${SHOGUN_PROJECT_ID:-}"
-  _INBOX=""
   if [[ -z "$_PROJECT_ID" ]]; then
     touch "$(shogun_idle_flag "$ROLE" "")"
-    _INBOX="${ROOT}/.shogun/queue/inbox/${ROLE}.yaml"
   elif [[ "$_PROJECT_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
     touch "$(shogun_idle_flag "$ROLE" "$_PROJECT_ID")"
-    _INBOX="${ROOT}/.shogun/queue/projects/${_PROJECT_ID}/inbox/${ROLE}.yaml"
   fi
 
   # コールドスタート救済: watcher は claude より先に起動するため、SessionStart が idle
-  # フラグを作る前に来た inbox 更新を wake_up_inbox が busy 判定で捨てる（inbox は reports と
-  # 違い pending マーカーを持たない）。起動直後はまだ Stop も走らず回収経路が無いため、
-  # ここで未読を additionalContext へ載せて初回タスクの取りこぼしを防ぐ。
+  # フラグを作る前に来た inbox 更新を busy 判定で捨てる場合がある。起動直後はまだ Stop も
+  # 走らず回収経路が無いため、ここで未読を additionalContext へ載せて初回取りこぼしを防ぐ。
   # 2 回目以降の取りこぼしは Stop フック（stop_hook.sh）が毎ターン未読を再提示してカバーする。
-  if [[ -n "$_INBOX" && -f "$_INBOX" ]]; then
-    _UNREAD=$(node -e '
-const yaml = require("js-yaml");
-try {
-  const data = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
-  const n = (data.messages || []).filter(m => m.status === "unread").length;
-  process.stdout.write(String(n));
-} catch (e) { process.stdout.write("0"); }
-' -- "$_INBOX" 2>/dev/null || echo "0")
+  _CLI="${_SCRIPT_DIR}/../packages/mcp-queue/cli.js"
+  if [[ -f "$_CLI" ]]; then
+    _UNREAD=$(node "$_CLI" inbox_unread_count \
+      "--root=${ROOT}" \
+      "--role=${ROLE}" \
+      ${_PROJECT_ID:+"--project-id=${_PROJECT_ID}"} 2>/dev/null || echo "0")
     if [[ "$_UNREAD" =~ ^[0-9]+$ && "$_UNREAD" -gt 0 ]]; then
-      INBOX_NOTICE="📬 inbox（${_INBOX#${ROOT}/}）に ${_UNREAD} 件の未読メッセージがあります。最優先で確認してください。"
+      INBOX_NOTICE="📬 inbox に ${_UNREAD} 件の未読メッセージがあります。最優先で確認してください。"
     fi
   fi
 fi

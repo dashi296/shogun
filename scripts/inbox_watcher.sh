@@ -2,10 +2,10 @@
 # 使用法: bash inbox_watcher.sh <agent_id> <tmux_pane>
 # 環境変数:
 #   SHOGUN_ROOT                .shogun/ の親ディレクトリ（必須）
-#   SHOGUN_REPORT_SOURCES      消費する報告元の空白区切りリスト。指定時は reports/ も監視する
-#                              （Karo / Taisho 用の安全網）。例: karo -> "gunshi metsuke ashigaru1",
-#                              taisho -> "karo"
+#   SHOGUN_BIN_DIR             Shogun インストール先（cli.js 参照用）
 #   SHOGUN_ASW_CHECK_INTERVAL  ASW チェック間隔（秒）。デフォルト 30
+#   SHOGUN_WAKE_CHECK_INTERVAL inbox 未読チェック間隔（秒）。デフォルト 5
+# MCP 移行後: YAML 監視は廃止。idle エージェントへの wake ナッジのみ担当する。
 set -euo pipefail
 
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -69,14 +69,9 @@ should_wake_on_report() {
 # ────────────────────────────────────────────────────────────
 
 # ペインへ通知を送る。本文と Enter を別々の send-keys で送出する。
-# Claude Code の TUI が起動直後・ビジー時、本文と Enter を同一 send-keys で送ると
-# ブラケットペースト扱いで末尾 Enter が改行に吸収され送信が確定しないことがある。
-# 本文を送ってから Enter を単独送信し、間に短いウェイトを挟むことで取りこぼしを防ぐ。
+# ASW エスカレーション（催促・/clear 送信）で引き続き使用する。
 notify_pane() {
   local pane="$1" message="$2"
-  # ペイン単位の flock で本文と Enter を1クリティカルセクションに包み、並行する
-  # watcher（inbox / reports / ASW）の send-keys が隙間に割り込んで混線するのを防ぐ。
-  # ロック取得に失敗（5秒タイムアウト）したら送信を諦める（破損を避け、ループは継続）。
   local lock_name="${pane//[^A-Za-z0-9_-]/_}"
   local lock_file="/tmp/shogun_send_${lock_name}.lock"
   (
@@ -87,59 +82,14 @@ notify_pane() {
   ) 200>"$lock_file" || true
 }
 
-# inbox の未読件数を確認し、未読があればペインへ通知する
-wake_up_inbox() {
-  # busy（作業中）のときは送らない。描画中・コマンド実行中のペインへ send-keys すると
-  # 出力が破損するため。取りこぼした通知は Stop フックが次ターン冒頭で再提示する。
+# idle 時のみ中身なし単発打鍵でエージェントを起こす。
+# 本文は MCP inbox_check で Claude 自身が取得するため送出しない。
+wake_pane() {
+  local pane="$1"
   is_agent_idle "$AGENT_ID" "${SHOGUN_PROJECT_ID:-}" || return 0
-
-  local unread subject node_out
-  # 1回の node 呼び出しで件数と件名を同時取得（二重読み込み・TOCTOU 回避）
-  node_out=$(node -e '
-const yaml = require("js-yaml");
-const inbox = process.argv[1];
-const data = yaml.load(require("fs").readFileSync(inbox, "utf8")) || {};
-const msgs = (data.messages || []).filter(m => m.status === "unread");
-const subject = msgs.length > 0 ? (msgs[0].subject || "").replace(/\n/g, " ").slice(0, 40) : "";
-process.stdout.write(String(msgs.length) + "\n" + subject);
-' -- "$INBOX" 2>/dev/null || echo "0")
-  unread="${node_out%%$'\n'*}"
-  if [[ "$node_out" == *$'\n'* ]]; then
-    subject="${node_out#*$'\n'}"
-  else
-    subject=""
-  fi
-
-  if [[ "$unread" -gt 0 ]]; then
-    tmux select-pane -t "$PANE" -T "${subject:-メッセージあり}" 2>/dev/null || true
-    notify_pane "$PANE" \
-      "${INBOX#${ROOT}/} に ${unread} 件の未読メッセージがあります。確認してください。"
-  fi
-}
-
-# reports pending マーカーのパスを返す（busy 中にスキップした report 通知の記録用）。
-# 命名は flag_names.sh の shogun_reports_pending_flag に集約（stop_hook.sh と一致）。
-reports_pending_flag() {
-  shogun_reports_pending_flag "$1" "$2"
-}
-
-# reports/ の更新を検知したときペインへ通知する（inbox_write 漏れに対する安全網）
-wake_up_reports() {
-  local pending; pending="$(reports_pending_flag "$AGENT_ID" "${SHOGUN_PROJECT_ID:-}")"
-
-  # busy 中は送らない（wake_up_inbox と同じく描画破損を防ぐ）。ただし握りつぶすと
-  # 次の更新イベントが来ない限り永久に気づけない（inbox は Stop フックが必ず再確認
-  # するが reports は別経路で救済がない）。そのため pending マーカーを立て、Stop フック
-  # が idle 復帰時に未処理 report を再通知できるようにする。
-  if ! is_agent_idle "$AGENT_ID" "${SHOGUN_PROJECT_ID:-}"; then
-    touch "$pending" 2>/dev/null || true
-    return 0
-  fi
-
-  # idle 時はここで直接通知するため、残っている pending は不要（Stop の二重通知を防ぐ）。
-  rm -f "$pending" 2>/dev/null || true
-  notify_pane "$PANE" \
-    ".shogun/queue/reports/ に下位エージェントの報告が更新されました。集約して上位へ報告してください。"
+  tmux send-keys -t "$pane" "" 2>/dev/null || true
+  sleep 0.1
+  tmux send-keys -t "$pane" Enter 2>/dev/null || true
 }
 
 # ────────────────────────────────────────────────────────────
@@ -276,84 +226,43 @@ watch_escalation() {
 }
 
 # ────────────────────────────────────────────────────────────
-# 監視ループ
+# 監視ループ（MCP 移行後: wake ナッジ専用）
 # ────────────────────────────────────────────────────────────
-
-watch_inbox() {
-  if [[ "$OS" == "Darwin" ]]; then
-    # --latency 0.5 で連続イベントをデバウンス
-    fswatch -o --latency 0.5 "$INBOX" | while read -r _; do wake_up_inbox; done
-  else
-    while inotifywait -e close_write "$INBOX" 2>/dev/null; do wake_up_inbox; done
-  fi
-}
-
-watch_reports() {
-  mkdir -p "$REPORTS_DIR"
-  if [[ "$OS" == "Darwin" ]]; then
-    # -o を付けず変更パスを取得し、消費する報告元(REPORT_SOURCES)の更新のみで wake する
-    fswatch --latency 0.5 "$REPORTS_DIR" | while read -r changed; do
-      should_wake_on_report "$(basename "$changed")" "$REPORT_SOURCES" && wake_up_reports
-    done
-  else
-    inotifywait -m -e close_write --format '%f' "$REPORTS_DIR" 2>/dev/null | while read -r base; do
-      should_wake_on_report "$base" "$REPORT_SOURCES" && wake_up_reports
-    done
-  fi
-}
 
 main() {
   AGENT_ID="${1:?Usage: $0 <agent_id> <tmux_pane>}"
   PANE="${2:?}"
   ROOT="${SHOGUN_ROOT:?SHOGUN_ROOT が未設定です}"
 
-  # パストラバーサル防止: エージェントIDは英数字・アンダースコア・ハイフンのみ許可
   [[ "$AGENT_ID" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "ERROR: 不正な agent_id: ${AGENT_ID}"; exit 1; }
 
-  # SHOGUN_PROJECT_ID が設定されている場合はプロジェクト専用のパスを使用
   if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
     [[ "$SHOGUN_PROJECT_ID" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "ERROR: 不正な project_id: ${SHOGUN_PROJECT_ID}"; exit 1; }
   fi
-  INBOX="$(resolve_inbox_path "$AGENT_ID" "${SHOGUN_PROJECT_ID:-}" "$ROOT")"
-  REPORTS_DIR="$(resolve_reports_dir "${SHOGUN_PROJECT_ID:-}" "$ROOT")"
-  # 消費する報告元の allowlist（空白区切り）。bin/shogun が役職ごとに設定する。
-  #   karo  -> "gunshi metsuke ashigaru1 ..." / taisho -> "karo"
-  REPORT_SOURCES="${SHOGUN_REPORT_SOURCES:-}"
-  mkdir -p "$(dirname "$INBOX")"
-  [[ -f "$INBOX" ]] || echo "messages: []" > "$INBOX"
 
-  OS=$(uname -s)
-  if [[ "$OS" == "Darwin" ]]; then
-    command -v fswatch &>/dev/null || { echo "ERROR: brew install fswatch を実行してください"; exit 1; }
-  else
-    command -v inotifywait &>/dev/null || { echo "ERROR: sudo apt install inotify-tools を実行してください"; exit 1; }
-  fi
-
-  # バックグラウンド子プロセスの PID を記録し、親終了時に確実に kill する
-  local _reports_pid="" _asw_pid="" _inbox_pid=""
+  local _asw_pid="" _wake_pid=""
   # shellcheck disable=SC2064
-  trap 'kill "${_reports_pid:-}" "${_asw_pid:-}" "${_inbox_pid:-}" 2>/dev/null || true' EXIT INT TERM HUP
+  trap 'kill "${_asw_pid:-}" "${_wake_pid:-}" 2>/dev/null || true' EXIT INT TERM HUP
 
-  # reports/ 監視は報告元 allowlist が指定されたとき（Karo / Taisho）だけ有効化
-  if [[ -n "$REPORT_SOURCES" ]]; then
-    watch_reports &
-    _reports_pid=$!
-  fi
-
-  # Agent Self-Watch: 環境変数で有効化されたときだけ起動
   if [[ "${SHOGUN_ASW_ENABLED:-false}" == "true" ]]; then
     watch_escalation "$PANE" &
     _asw_pid=$!
   fi
 
-  # watch_inbox はバックグラウンドに回し wait で待つ（前景の外部コマンドではなく
-  # wait ビルトインで待機する）。これにより EXIT/TERM トラップが即座に発火し、
-  # macOS 標準の bash 3.2 でも終了時に子プロセス（watch_reports / watch_escalation /
-  # watch_inbox）を確実に kill できる（#64）。bash 3.2 は前景の外部コマンド実行中は
-  # トラップを遅延させ、前景 watch_inbox のままだと SIGTERM を受けても子が残留し
-  # テストもハングするため。watch_inbox 自身の PID も記録してトラップで kill する。
-  watch_inbox &
-  _inbox_pid=$!
+  # inbox 更新は MCP プル型に移行。cli.js で未読件数を定期確認し、あれば wake ナッジを送る。
+  while true; do
+    sleep "${SHOGUN_WAKE_CHECK_INTERVAL:-5}"
+    local unread=0
+    unread="$(node "${SHOGUN_BIN_DIR}/packages/mcp-queue/cli.js" \
+      inbox_unread_count \
+      "--root=${ROOT}" \
+      "--role=${AGENT_ID}" \
+      ${SHOGUN_PROJECT_ID:+"--project-id=${SHOGUN_PROJECT_ID}"} 2>/dev/null || echo 0)"
+    if [[ "$unread" -gt 0 ]]; then
+      wake_pane "$PANE"
+    fi
+  done &
+  _wake_pid=$!
   wait
 }
 

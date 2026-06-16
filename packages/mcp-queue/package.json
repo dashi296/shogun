@@ -1,0 +1,15 @@
+{
+  "name": "@shogun/mcp-queue",
+  "version": "0.0.1",
+  "private": true,
+  "description": "MCP サーバ: Shogun エージェント間通信（SQLite WAL）",
+  "main": "src/server.js",
+  "scripts": {
+    "test": "node --test test/db.test.js test/tools.test.js",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "better-sqlite3": "^12.11.1"
+  }
+}

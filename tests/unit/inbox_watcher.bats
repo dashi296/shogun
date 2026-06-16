@@ -155,6 +155,59 @@ setup() {
 }
 
 # ────────────────────────────────────────────────────────────
+# wake_pane: idle エージェントへの非空 wake-up プロンプト送出
+#
+# Claude Code TUI は空文字列+Enter を新ターンとして処理しないため、
+# wake_pane は notify_pane 経由で inbox_check を促す非空プロンプトを送出する。
+# 空送信のまま放置すると shogun task / inbox_send 後にエージェントが起きない。
+# ────────────────────────────────────────────────────────────
+
+@test "wake_pane: sends non-empty prompt to idle agent (empty Enter does not start a turn)" {
+  local log; log="$(mktemp)"
+  tmux() { printf '%s\n' "$*" >> "$log"; }
+  sleep() { :; }
+
+  AGENT_ID="karo"
+  SHOGUN_PROJECT_ID=""
+  SHOGUN_ROOT="/tmp/test_wakepane_$$"
+  local flag; flag="$(shogun_idle_flag "$AGENT_ID" "")"
+  touch "$flag"
+
+  wake_pane "testpane"
+
+  local first_line last_line
+  first_line="$(head -1 "$log" 2>/dev/null || true)"
+  last_line="$(tail -1 "$log" 2>/dev/null || true)"
+  rm -f "$flag" "$log"
+
+  # 本文が空でないこと（旧実装の空文字では Claude Code が新ターンを開始しない）
+  [[ "$first_line" != "send-keys -t testpane" ]]
+  [[ "$first_line" != "send-keys -t testpane " ]]
+  # inbox への言及がある wake メッセージであること
+  [[ "$first_line" == *"inbox"* ]]
+  # 最後に Enter で送信が確定すること
+  [ "$last_line" = "send-keys -t testpane Enter" ]
+}
+
+@test "wake_pane: does not send-keys when agent is busy" {
+  local log; log="$(mktemp)"
+  tmux() { printf '%s\n' "$*" >> "$log"; }
+  sleep() { :; }
+
+  AGENT_ID="karo"
+  SHOGUN_PROJECT_ID=""
+  SHOGUN_ROOT="/tmp/test_wakepane_$$"
+  local flag; flag="$(shogun_idle_flag "$AGENT_ID" "")"
+  rm -f "$flag"  # フラグ不在 = busy
+
+  wake_pane "testpane"
+
+  run cat "$log"
+  rm -f "$log"
+  [ "${#lines[@]}" -eq 0 ]
+}
+
+# ────────────────────────────────────────────────────────────
 # get_escalation_phase: 経過時間からフェーズを判定する純粋関数
 # ────────────────────────────────────────────────────────────
 

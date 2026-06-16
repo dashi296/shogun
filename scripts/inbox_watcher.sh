@@ -85,14 +85,15 @@ notify_pane() {
   ) 200>"$lock_file" || true
 }
 
-# idle 時のみ中身なし単発打鍵でエージェントを起こす。
-# 本文は MCP inbox_check で Claude 自身が取得するため送出しない。
+# idle 時のみ wake-up プロンプトを送る。
+# Claude Code TUI は空文字列+Enter を新ターンとして処理しないため、
+# MCP inbox_check を促す最小プロンプトを本文として notify_pane 経由で送出する
+# （notify_pane はペイン単位の flock で ASW エスカレーションとの混線を防ぐ）。
 wake_pane() {
   local pane="$1"
   is_agent_idle "$AGENT_ID" "${SHOGUN_PROJECT_ID:-}" || return 0
-  tmux send-keys -t "$pane" "" 2>/dev/null || true
-  sleep 0.1
-  tmux send-keys -t "$pane" Enter 2>/dev/null || true
+  notify_pane "$pane" \
+    "（システム自動通知）inbox に未読メッセージがあります。inbox_check で確認してください。"
 }
 
 # ────────────────────────────────────────────────────────────

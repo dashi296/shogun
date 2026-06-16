@@ -107,3 +107,38 @@ teardown() {
   [ "$status" -ne 0 ]
   [[ "$output" =~ "invalid project-id" ]]
 }
+
+@test "cli.js inbox_send: rejects path-traversal --from role" {
+  run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+    inbox_send "--root=${TMP_ROOT}" "--from=../evil" "--to=taisho" "--subject=x"
+  [ "$status" -ne 0 ]
+  [[ "$output" =~ "invalid --from" ]]
+}
+
+@test "cli.js inbox_send: rejects path-traversal --to role" {
+  run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+    inbox_send "--root=${TMP_ROOT}" "--from=karo" "--to=../evil" "--subject=x"
+  [ "$status" -ne 0 ]
+  [[ "$output" =~ "invalid --to" ]]
+}
+
+@test "cli.js inbox_send: rejects --to with spaces" {
+  run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+    inbox_send "--root=${TMP_ROOT}" "--from=karo" "--to=bad role" "--subject=x"
+  [ "$status" -ne 0 ]
+  [[ "$output" =~ "invalid --to" ]]
+}
+
+@test "cli.js inbox_unread_count: rejects path-traversal --role" {
+  run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+    inbox_unread_count "--root=${TMP_ROOT}" "--role=../evil"
+  [ "$status" -ne 0 ]
+  [[ "$output" =~ "invalid --role" ]]
+}
+
+@test "cli.js inbox_list: rejects path-traversal --role" {
+  run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+    inbox_list "--root=${TMP_ROOT}" "--role=../evil"
+  [ "$status" -ne 0 ]
+  [[ "$output" =~ "invalid --role" ]]
+}

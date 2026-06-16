@@ -4,6 +4,8 @@ const {
   insertReport, pollReports, consumeReports
 } = require('./db.js');
 
+const ROLE_RE = /^[A-Za-z0-9_-]+$/;
+
 function now() {
   return new Date().toISOString();
 }
@@ -13,6 +15,7 @@ function handleInboxCheck(db, role, { project_id = '' } = {}) {
 }
 
 function handleInboxSend(db, fromRole, { to, subject, body = '', project_id = '' } = {}) {
+  if (!to || !ROLE_RE.test(to)) throw new Error(`invalid to: ${to}`);
   const id = insertMessage(db, {
     project_id, from_role: fromRole, to_role: to,
     subject, body, created_at: now()

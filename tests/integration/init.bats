@@ -111,6 +111,12 @@ process.stdout.write(JSON.stringify(d.commands));
   done
 }
 
+@test "init: creates SQLite queue.db file" {
+  shogun init
+  # DB ファイルが存在することで init 中の SQLite 初期化が成功したことを確認する
+  [ -f "${TEST_PROJECT}/.shogun/queue/queue.db" ]
+}
+
 # --- idempotency and gitignore ---
 
 @test "init: second run does not error" {

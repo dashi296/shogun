@@ -19,10 +19,19 @@ function getArg(name) {
 const root = getArg('root');
 if (!root) { process.stderr.write('--root is required\n'); process.exit(1); }
 
+const ROLE_RE = /^[A-Za-z0-9_-]+$/;
+
 const projectId = getArg('project-id');
-if (projectId && !/^[A-Za-z0-9_-]+$/.test(projectId)) {
+if (projectId && !ROLE_RE.test(projectId)) {
   process.stderr.write(`ERROR: invalid project-id: ${projectId}\n`);
   process.exit(1);
+}
+
+function validateRole(value, flag) {
+  if (!value || !ROLE_RE.test(value)) {
+    process.stderr.write(`ERROR: invalid ${flag}: ${value}\n`);
+    process.exit(1);
+  }
 }
 
 function getDb() {
@@ -43,6 +52,8 @@ if (command === 'inbox_send') {
     process.stderr.write('inbox_send requires --from --to --subject\n');
     process.exit(1);
   }
+  validateRole(fromRole, '--from');
+  validateRole(toRole,   '--to');
   const db = getDb();
   const id = insertMessage(db, {
     project_id: projectId, from_role: fromRole, to_role: toRole,
@@ -54,6 +65,7 @@ if (command === 'inbox_send') {
 } else if (command === 'inbox_unread_count') {
   const role = getArg('role');
   if (!role) { process.stderr.write('inbox_unread_count requires --role\n'); process.exit(1); }
+  validateRole(role, '--role');
   const db = getDb();
   const rows = queryUnread(db, role, projectId);
   db.close();
@@ -62,6 +74,7 @@ if (command === 'inbox_send') {
 } else if (command === 'inbox_list') {
   const role = getArg('role');
   if (!role) { process.stderr.write('inbox_list requires --role\n'); process.exit(1); }
+  validateRole(role, '--role');
   const db = getDb();
   const rows = queryUnread(db, role, projectId);
   db.close();

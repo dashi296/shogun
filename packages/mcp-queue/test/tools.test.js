@@ -38,6 +38,27 @@ describe('handleInboxSend / handleInboxCheck', () => {
     const m = messages.find(m => m.subject === 'from-test');
     assert.equal(m.from_role, 'ashigaru1');
   });
+
+  test('to に不正文字を含む場合は Error を投げる（パストラバーサル防止）', () => {
+    assert.throws(
+      () => handleInboxSend(db, 'karo', { to: '../evil', subject: 'x', project_id: '' }),
+      /invalid to/
+    );
+  });
+
+  test('to にスペースを含む場合は Error を投げる', () => {
+    assert.throws(
+      () => handleInboxSend(db, 'karo', { to: 'bad role', subject: 'x', project_id: '' }),
+      /invalid to/
+    );
+  });
+
+  test('to が空文字の場合は Error を投げる', () => {
+    assert.throws(
+      () => handleInboxSend(db, 'karo', { to: '', subject: 'x', project_id: '' }),
+      /invalid to/
+    );
+  });
 });
 
 describe('handleInboxMarkRead', () => {

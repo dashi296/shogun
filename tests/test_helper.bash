@@ -16,14 +16,6 @@ fi
 # js-yaml を確実に解決できるよう NODE_PATH を設定
 export NODE_PATH="${SHOGUN_REPO}/node_modules${NODE_PATH:+:$NODE_PATH}"
 
-# テスト用一時プロジェクトを作成（inbox_write 単体テスト用: inbox ディレクトリのみ）
-setup_test_project() {
-  TEST_PROJECT="$(mktemp -d)"
-  export TEST_PROJECT
-  export SHOGUN_ROOT="${TEST_PROJECT}"
-  mkdir -p "${TEST_PROJECT}/.shogun/queue/inbox"
-}
-
 # shogun init 済みのフルプロジェクトを作成（統合テスト用）
 init_test_project() {
   TEST_PROJECT="$(mktemp -d "${TMPDIR:-/tmp}/shogun-test-XXXXXXXX")"

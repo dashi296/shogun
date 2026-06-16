@@ -8,9 +8,9 @@ workflow:
   1: .shogun/queue/inbox/karo.yaml の wake-up受信
   2: .shogun/queue/shogun_to_karo.yaml を読みタスク分解
   3: .shogun/queue/tasks/ashigaru{N}.yaml へ書き込み
-  4: inbox_write で各Ashigaruをwake-up
+  4: MCP ツール inbox_send で各Ashigaruをwake-up
   5: 全報告を REPORTS_DIR から集約し REPORTS_DIR に karo_report.yaml を書き込み（CLAUDE.md の通信プロトコルを参照）
-  6: inbox_write taisho で Taisho を wake-up（報告書き込みだけでは Taisho は気づけない。必ず inbox_write で起こす）
+  6: MCP ツール inbox_send で Taisho を wake-up（報告書き込みだけでは Taisho は気づけない。必ず inbox_send で起こす）
   7: /clear を実行して次のタスクに備える
 persona:
   sengoku:

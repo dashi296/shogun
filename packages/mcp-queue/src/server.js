@@ -125,7 +125,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   switch (name) {
     case 'inbox_check':      result = handleInboxCheck(db, role, a);                      break;
     case 'inbox_send':       result = handleInboxSend(db, role, a);                       break;
-    case 'inbox_mark_read':  result = handleInboxMarkRead(db, a);                         break;
+    case 'inbox_mark_read':  result = handleInboxMarkRead(db, role, a);                   break;
     case 'report_submit':    result = handleReportSubmit(db, role, a);                    break;
     case 'report_poll':      result = handleReportPoll(db, role, allowedSources, a);      break;
     default:                 throw new Error(`Unknown tool: ${name}`);

@@ -43,9 +43,26 @@ describe('handleInboxSend / handleInboxCheck', () => {
 describe('handleInboxMarkRead', () => {
   test('既読にしたメッセージは inbox_check に出なくなる', () => {
     const { id } = handleInboxSend(db, 'karo', { to: 'taisho', subject: 'mark-read-test', body: '', project_id: '' });
-    handleInboxMarkRead(db, { message_ids: [id] });
+    handleInboxMarkRead(db, 'taisho', { message_ids: [id], project_id: '' });
     const { messages } = handleInboxCheck(db, 'taisho', { project_id: '' });
     assert.ok(messages.every(m => m.subject !== 'mark-read-test'));
+  });
+
+  test('他役職のメッセージ ID を指定しても既読化されない（スコープ防止）', () => {
+    // taisho 宛のメッセージを送信
+    const { id } = handleInboxSend(db, 'karo', { to: 'taisho', subject: 'scope-guard-test', body: '', project_id: '' });
+    // karo として mark_read を呼んでも taisho 宛は変化しない
+    handleInboxMarkRead(db, 'karo', { message_ids: [id], project_id: '' });
+    const { messages } = handleInboxCheck(db, 'taisho', { project_id: '' });
+    assert.ok(messages.some(m => m.subject === 'scope-guard-test'), 'taisho の未読が消えてはいけない');
+  });
+
+  test('project_id が異なるメッセージは既読化されない', () => {
+    const { id } = handleInboxSend(db, 'karo', { to: 'taisho', subject: 'proj-scope-test', body: '', project_id: 'proj-a' });
+    // 同じ role だが project_id が違う
+    handleInboxMarkRead(db, 'taisho', { message_ids: [id], project_id: 'proj-b' });
+    const { messages } = handleInboxCheck(db, 'taisho', { project_id: 'proj-a' });
+    assert.ok(messages.some(m => m.subject === 'proj-scope-test'), 'project_id 違いで既読化されてはいけない');
   });
 });
 

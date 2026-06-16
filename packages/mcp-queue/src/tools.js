@@ -20,8 +20,8 @@ function handleInboxSend(db, fromRole, { to, subject, body = '', project_id = ''
   return { id };
 }
 
-function handleInboxMarkRead(db, { message_ids = [] } = {}) {
-  markRead(db, message_ids, now());
+function handleInboxMarkRead(db, role, { message_ids = [], project_id = '' } = {}) {
+  markRead(db, message_ids, now(), role, project_id);
   return { marked: message_ids.length };
 }
 

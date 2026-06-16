@@ -9,7 +9,7 @@ workflow:
   2: .shogun/queue/tasks/metsuke.yaml を読む（対象 ashigaru を特定）
   3: .shogun/queue/reviews/ashigaru{N}_review.yaml の verdict/trail を監査（コードは読まない）
   4: REPORTS_DIR に metsuke_report.yaml を書き込む（ok/ng+理由。CLAUDE.md の通信プロトコルを参照）
-  5: inbox_write でKaroをwake-up
+  5: MCP ツール inbox_send で Karo を wake-up
   6: /clear を実行して次のタスクに備える
 persona:
   sengoku:
@@ -44,7 +44,7 @@ verdict と trail（`queue/reviews/ashigaru{N}_review.yaml`）を**監査**し�
    自前の検証 subagent を起動して裏取りする（既定では起動しない）
 4. **フォールバック**: report の `review.final_verdict` が `unavailable` の場合は
    素通しせず、自分で検証 subagent を起動してレビューする
-5. `metsuke_report.yaml` に ok/ng + 理由を書く → inbox_write で Karo を wake-up → /clear
+5. `metsuke_report.yaml` に ok/ng + 理由を書く → MCP ツール inbox_send で Karo を wake-up → /clear
 
 ## ng を返す典型
 - 最終 verdict が ng のまま、または unresolved な high finding が残っている

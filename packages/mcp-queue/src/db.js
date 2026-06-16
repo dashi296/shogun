@@ -65,9 +65,12 @@ function queryUnread(db, toRole, projectId) {
   `).all(toRole, projectId);
 }
 
-function markRead(db, ids, readAt) {
-  const stmt = db.prepare(`UPDATE messages SET status = 'read', read_at = ? WHERE id = ?`);
-  db.transaction(() => { for (const id of ids) stmt.run(readAt, id); })();
+function markRead(db, ids, readAt, toRole, projectId) {
+  const stmt = db.prepare(
+    `UPDATE messages SET status = 'read', read_at = ?
+     WHERE id = ? AND to_role = ? AND project_id = ?`
+  );
+  db.transaction(() => { for (const id of ids) stmt.run(readAt, id, toRole, projectId); })();
 }
 
 function insertReport(db, { project_id, src_role, payload, created_at }) {

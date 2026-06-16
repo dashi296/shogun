@@ -53,7 +53,7 @@ describe('messages', () => {
       project_id: '', from_role: 'karo', to_role: 'taisho',
       subject: 'mark-me', body: '', created_at: '2026-01-01T00:00:02Z'
     });
-    markRead(db, [id], '2026-01-01T00:00:03Z');
+    markRead(db, [id], '2026-01-01T00:00:03Z', 'taisho', '');
     const rows = queryUnread(db, 'taisho', '');
     assert.ok(rows.every(r => r.subject !== 'mark-me'));
   });

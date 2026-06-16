@@ -12,7 +12,7 @@ workflow:
   5: 報告前レビュー（レビュー subagent を起動。下記「報告前レビュー」節）
   6: REPORTS_DIR に ashigaru{N}_report.yaml を書き込む（review trail 要約を含む。CLAUDE.md の通信プロトコルを参照）
   7: status: done に更新
-  8: inbox_write でKaro/Metsukeをwake-up
+  8: MCP ツール inbox_send で Karo/Metsuke を wake-up
   9: /clear を実行して次のタスクに備える
 recovery_after_clear:
   手順:

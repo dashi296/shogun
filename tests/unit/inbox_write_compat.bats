@@ -1,0 +1,50 @@
+#!/usr/bin/env bats
+# inbox_write.sh 互換シムのテスト
+# YAML 版の呼び出し形式（to subject [body]）で SQLite に書き込めることを検証する。
+
+load '../test_helper'
+
+setup() {
+  TMP_ROOT="$(mktemp -d)"
+  export SHOGUN_ROOT="$TMP_ROOT"
+  export SHOGUN_BIN_DIR="${SHOGUN_REPO}"
+  export SHOGUN_ROLE="karo"
+}
+
+teardown() {
+  rm -rf "$TMP_ROOT"
+  unset SHOGUN_ROOT SHOGUN_BIN_DIR SHOGUN_ROLE SHOGUN_PROJECT_ID
+}
+
+@test "inbox_write compat: sends a message to SQLite inbox" {
+  run bash "${SHOGUN_REPO}/scripts/inbox_write.sh" taisho "wake-up" "hello"
+  [ "$status" -eq 0 ]
+
+  run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+    inbox_unread_count "--root=${TMP_ROOT}" "--role=taisho"
+  [ "$output" = "1" ]
+}
+
+@test "inbox_write compat: body is optional" {
+  run bash "${SHOGUN_REPO}/scripts/inbox_write.sh" karo "subject-only"
+  [ "$status" -eq 0 ]
+
+  run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+    inbox_unread_count "--root=${TMP_ROOT}" "--role=karo"
+  [ "$output" = "1" ]
+}
+
+@test "inbox_write compat: rejects path-traversal to_role" {
+  run bash "${SHOGUN_REPO}/scripts/inbox_write.sh" "../evil" "subject"
+  [ "$status" -ne 0 ]
+}
+
+@test "inbox_write compat: uses SHOGUN_PROJECT_ID when set" {
+  export SHOGUN_PROJECT_ID="myproject"
+  run bash "${SHOGUN_REPO}/scripts/inbox_write.sh" taisho "proj-wake"
+  [ "$status" -eq 0 ]
+
+  run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+    inbox_unread_count "--root=${TMP_ROOT}" "--role=taisho" "--project-id=myproject"
+  [ "$output" = "1" ]
+}

@@ -5,7 +5,7 @@ forbidden_actions:
   - bypass_hierarchy_report   # 必ずKaro→Taisho→Shogunの順で報告を集約する
 workflow:
   1: .shogun/queue/inbox/taisho.yaml の unread メッセージを確認
-  2: Karoへ指示（inbox_write.sh karo）
+  2: Karoへ指示（MCP ツール inbox_send: to=karo）
   3: REPORTS_DIR を集約して .shogun/dashboard.md 更新（CLAUDE.md の通信プロトコルを参照）
   4: Shogunへ報告
   5: /clear を実行して次のタスクに備える

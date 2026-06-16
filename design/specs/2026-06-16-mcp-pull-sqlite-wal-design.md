@@ -64,7 +64,7 @@ YAML の read-modify-write 競合と `flock` 運用・`node + js-yaml` 都度パ
 ```sql
 -- メッセージ（inbox に相当）
 CREATE TABLE messages (
-  id          TEXT PRIMARY KEY,          -- msg_{timestamp}_{pid}
+  id          INTEGER PRIMARY KEY,       -- SQLite ROWID エイリアス（衝突ゼロ・単一長寿命プロセス内で安全）
   project_id  TEXT NOT NULL DEFAULT '',  -- 空文字 = プロジェクト未設定
   from_role   TEXT NOT NULL,
   to_role     TEXT NOT NULL,
@@ -77,7 +77,7 @@ CREATE TABLE messages (
 
 -- 報告（reports に相当）
 CREATE TABLE reports (
-  id          TEXT PRIMARY KEY,
+  id          INTEGER PRIMARY KEY,
   project_id  TEXT NOT NULL DEFAULT '',
   src_role    TEXT NOT NULL,
   payload     TEXT NOT NULL,             -- YAML 文字列 or JSON
@@ -99,7 +99,7 @@ CREATE TABLE reports (
 ### 配信層：MCP サーバ（プル型）
 
 MCP サーバを `.mcp.json` でプロジェクトに配布し、Claude が自分のターン中にツールを呼び出す。
-外部からのキー注入が完全に廃止される。
+外部からの**本文注入**が廃止される（wake 用の中身なし単発打鍵のみ例外として残る。詳細は後述の「wake」節を参照）。
 
 **想定 MCP ツール（案）:**
 
@@ -112,8 +112,9 @@ MCP サーバを `.mcp.json` でプロジェクトに配布し、Claude が自�
 | `report_poll(sources, project_id?)` | sources: string[] | 未消費報告一覧 | `watch_reports` + `should_wake_on_report` |
 
 **MCP サーバの実体:**
-- SQLite を裏に持つ単一 Node.js プロセス（例: `@shogun/mcp-queue`）
-- `shogun start` がプロセスを起動・停止。ライフサイクルは PID ファイルで管理
+- SQLite を裏に持つ Node.js プロセス（例: `@shogun/mcp-queue`）
+- role-based AC の推奨方式（後述）では**役職ごとに1プロセス**を起動し、`--role` 引数で管轄 role を固定する
+- `shogun start` が役職別にプロセスを起動・停止。ライフサイクルは PID ファイルで管理
 
 ### wake（待機中エージェントの起動）
 

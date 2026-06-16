@@ -70,3 +70,32 @@ teardown() {
     "--subject=valid" "--project-id=my-project_01"
   [ "$status" -eq 0 ]
 }
+
+@test "cli.js inbox_list: shows unread messages with id and subject" {
+  node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+    inbox_send "--root=${TMP_ROOT}" "--from=karo" "--to=taisho" "--subject=hello-list"
+  node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+    inbox_send "--root=${TMP_ROOT}" "--from=karo" "--to=taisho" "--subject=second-msg"
+
+  run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+    inbox_list "--root=${TMP_ROOT}" "--role=taisho"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "未読: 2 件" ]]
+  [[ "$output" =~ "hello-list" ]]
+  [[ "$output" =~ "second-msg" ]]
+  [[ "$output" =~ "from: karo" ]]
+}
+
+@test "cli.js inbox_list: shows 0 件 when inbox is empty" {
+  run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+    inbox_list "--root=${TMP_ROOT}" "--role=taisho"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "未読: 0 件" ]]
+}
+
+@test "cli.js inbox_list: rejects path-traversal project-id" {
+  run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+    inbox_list "--root=${TMP_ROOT}" "--role=taisho" "--project-id=../../evil"
+  [ "$status" -ne 0 ]
+  [[ "$output" =~ "invalid project-id" ]]
+}

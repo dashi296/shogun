@@ -4,6 +4,7 @@
 //   node cli.js inbox_send --root=<root> --from=<role> --to=<role> \
 //                          --subject=<s> [--body=<b>] [--project-id=<id>]
 //   node cli.js inbox_unread_count --root=<root> --role=<role> [--project-id=<id>]
+//   node cli.js inbox_list --root=<root> --role=<role> [--project-id=<id>]
 
 const path = require('node:path');
 const { openDb, initSchema, insertMessage, queryUnread } = require('./src/db.js');
@@ -58,7 +59,18 @@ if (command === 'inbox_send') {
   db.close();
   process.stdout.write(`${rows.length}\n`);
 
+} else if (command === 'inbox_list') {
+  const role = getArg('role');
+  if (!role) { process.stderr.write('inbox_list requires --role\n'); process.exit(1); }
+  const db = getDb();
+  const rows = queryUnread(db, role, projectId);
+  db.close();
+  process.stdout.write(`未読: ${rows.length} 件\n`);
+  for (const r of rows) {
+    process.stdout.write(`  - [${r.id}] (from: ${r.from_role}) ${r.subject}\n`);
+  }
+
 } else {
-  process.stderr.write(`Unknown command: ${command}\nSupported: inbox_send, inbox_unread_count\n`);
+  process.stderr.write(`Unknown command: ${command}\nSupported: inbox_send, inbox_unread_count, inbox_list\n`);
   process.exit(1);
 }

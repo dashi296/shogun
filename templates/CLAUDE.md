@@ -32,6 +32,8 @@
 > 番号を除くのは instructions（`ashigaru.md`）を読むときだけで、タスク・報告のファイルパスには番号付きの役職名を使う点に注意。
 
 - 受信: MCP ツール **`inbox_check`** を呼び出す（`project_id` は `$SHOGUN_PROJECT_ID` の値、未設定時は空文字）
+  - **受信直後に必ず既読化**: 取得した各メッセージの `id` を使い **`inbox_mark_read`** を呼ぶ
+    （既読化しないと `stop_hook` が未読を検出し続け、不要な wake-up が繰り返される）
 - 送信: MCP ツール **`inbox_send`** を呼び出す（`to`, `subject`, `body`, `project_id?` を指定）
   - 互換手段: `bash $SHOGUN_BIN_DIR/scripts/inbox_write.sh {相手} "{subject}" "{body}"` でも送信可能
 - タスク: `.shogun/queue/tasks/{自分の役職}.yaml` を読む

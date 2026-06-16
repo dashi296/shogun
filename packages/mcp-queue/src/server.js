@@ -120,15 +120,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }))
 
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
   const { name, arguments: a = {} } = req.params;
-  const db = getDb(a.project_id || process.env.SHOGUN_PROJECT_ID || '');
+  // project_id が省略された場合は SHOGUN_PROJECT_ID 環境変数で補完する。
+  // DB パスとレコードの project_id を一致させるため、補完済みの値を args にも反映する。
+  const effectiveProjectId = a.project_id || process.env.SHOGUN_PROJECT_ID || '';
+  const db = getDb(effectiveProjectId);
+  const args = { ...a, project_id: effectiveProjectId };
 
   let result;
   switch (name) {
-    case 'inbox_check':      result = handleInboxCheck(db, role, a);                      break;
-    case 'inbox_send':       result = handleInboxSend(db, role, a);                       break;
-    case 'inbox_mark_read':  result = handleInboxMarkRead(db, role, a);                   break;
-    case 'report_submit':    result = handleReportSubmit(db, role, a);                    break;
-    case 'report_poll':      result = handleReportPoll(db, role, allowedSources, a);      break;
+    case 'inbox_check':      result = handleInboxCheck(db, role, args);                      break;
+    case 'inbox_send':       result = handleInboxSend(db, role, args);                       break;
+    case 'inbox_mark_read':  result = handleInboxMarkRead(db, role, args);                   break;
+    case 'report_submit':    result = handleReportSubmit(db, role, args);                    break;
+    case 'report_poll':      result = handleReportPoll(db, role, allowedSources, args);      break;
     default:                 throw new Error(`Unknown tool: ${name}`);
   }
 

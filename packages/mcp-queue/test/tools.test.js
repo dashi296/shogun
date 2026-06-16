@@ -127,3 +127,41 @@ describe('handleReportSubmit / handleReportPoll', () => {
     assert.equal(reports.length, 0);
   });
 });
+
+// ── server.js ディスパッチの project_id 伝播 ──────────────────────────────
+// server.js は「DB パスの選択」と「ハンドラへの引数」の両方に同じ project_id を
+// 使う必要がある。以前の実装は DB パスだけ補完し、ハンドラには空文字を渡していたため
+// project_id='' でレコードが保存され、watcher が --project-id=<id> で検索しても
+// 見つからないという不具合があった。
+describe('server dispatch: SHOGUN_PROJECT_ID → project_id 伝播', () => {
+  test('args に project_id がない場合、SHOGUN_PROJECT_ID で補完されハンドラにも伝わる', () => {
+    const savedEnv = process.env.SHOGUN_PROJECT_ID;
+    process.env.SHOGUN_PROJECT_ID = 'proj-dispatch';
+    try {
+      // server.js のディスパッチロジックを模倣
+      const a = { to: 'taisho', subject: 'dispatch-test' }; // project_id 省略
+      const effectiveProjectId = a.project_id || process.env.SHOGUN_PROJECT_ID || '';
+      const args = { ...a, project_id: effectiveProjectId }; // 修正後: args にも反映
+
+      const { id } = handleInboxSend(db, 'karo', args);
+      assert.ok(id > 0);
+
+      // effectiveProjectId で検索 → 見つかる
+      const { messages } = handleInboxCheck(db, 'taisho', { project_id: 'proj-dispatch' });
+      assert.ok(
+        messages.some(m => m.subject === 'dispatch-test'),
+        'project_id が補完されハンドラへ伝わることで検索可能になる'
+      );
+
+      // 空の project_id で検索 → 見つからない（project 用レコードは混在しない）
+      const { messages: noproj } = handleInboxCheck(db, 'taisho', { project_id: '' });
+      assert.ok(
+        !noproj.some(m => m.subject === 'dispatch-test'),
+        '空 project_id では project 付きのメッセージは見えない'
+      );
+    } finally {
+      if (savedEnv === undefined) delete process.env.SHOGUN_PROJECT_ID;
+      else process.env.SHOGUN_PROJECT_ID = savedEnv;
+    }
+  });
+});

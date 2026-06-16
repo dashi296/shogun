@@ -48,3 +48,25 @@ teardown() {
     inbox_unread_count "--root=${TMP_ROOT}" "--role=taisho" "--project-id=myproject"
   [ "$output" = "1" ]
 }
+
+@test "cli.js: rejects path-traversal project-id in inbox_send" {
+  run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+    inbox_send "--root=${TMP_ROOT}" "--from=karo" "--to=taisho" \
+    "--subject=x" "--project-id=../../evil"
+  [ "$status" -ne 0 ]
+  [[ "$output" =~ "invalid project-id" ]]
+}
+
+@test "cli.js: rejects path-traversal project-id in inbox_unread_count" {
+  run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+    inbox_unread_count "--root=${TMP_ROOT}" "--role=taisho" "--project-id=../outside"
+  [ "$status" -ne 0 ]
+  [[ "$output" =~ "invalid project-id" ]]
+}
+
+@test "cli.js: accepts valid project-id with alphanumeric and hyphens" {
+  run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+    inbox_send "--root=${TMP_ROOT}" "--from=karo" "--to=taisho" \
+    "--subject=valid" "--project-id=my-project_01"
+  [ "$status" -eq 0 ]
+}

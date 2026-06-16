@@ -19,6 +19,10 @@ const root = getArg('root');
 if (!root) { process.stderr.write('--root is required\n'); process.exit(1); }
 
 const projectId = getArg('project-id');
+if (projectId && !/^[A-Za-z0-9_-]+$/.test(projectId)) {
+  process.stderr.write(`ERROR: invalid project-id: ${projectId}\n`);
+  process.exit(1);
+}
 
 function getDb() {
   const dbPath = projectId

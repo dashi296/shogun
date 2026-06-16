@@ -406,47 +406,55 @@ setup() {
 }
 
 # ────────────────────────────────────────────────────────────
-# should_nudge_inbox: 未読件数変化によるデバウンス判定
+# should_nudge_inbox: 最大未読 message ID 変化によるデバウンス判定
 #
-# 同一未読件数での連続 wake ナッジを防ぐ純粋関数。
-# - unread > 0 かつ last_notified と異なる場合のみ true (0)
-# - unread == 0 (既読) または unread == last_notified (変化なし) では false (1)
+# 件数ではなく最大 ID を比較するため、旧メッセージ既読 + 新メッセージ到着が
+# ポーリング間隔内に同時発生しても取りこぼさない（count=1→0→1 の競合回避）。
+# - max_id > 0 かつ last_notified と異なる場合のみ true (0)
+# - max_id == 0 (未読なし) または max_id == last_notified (変化なし) では false (1)
 # ────────────────────────────────────────────────────────────
 
-@test "should_nudge_inbox: returns true for first notification (last_notified=0, unread=1)" {
+@test "should_nudge_inbox: returns true for first notification (last_notified=0, max_id=1)" {
   run should_nudge_inbox 1 0
   [ "$status" -eq 0 ]
 }
 
-@test "should_nudge_inbox: returns true when unread count increases" {
-  run should_nudge_inbox 2 1
+@test "should_nudge_inbox: returns true when new message arrives (higher max_id)" {
+  run should_nudge_inbox 6 5
   [ "$status" -eq 0 ]
 }
 
-@test "should_nudge_inbox: returns true when unread count decreases (partial read)" {
-  # エージェントが3件中2件を既読にし、残り1件になった場合も再通知すべき
-  run should_nudge_inbox 1 3
+@test "should_nudge_inbox: returns true when new message arrives after old read (race scenario)" {
+  # 旧メッセージ(id=5)既読 + 新メッセージ(id=6)到着がポーリング間隔内に同時発生
+  # count ベースでは 1==1 で通知しないが、max_id ベースでは 6≠5 で通知する
+  run should_nudge_inbox 6 5
   [ "$status" -eq 0 ]
 }
 
-@test "should_nudge_inbox: returns false when no unread messages" {
+@test "should_nudge_inbox: returns true when max_id decreases (partial read)" {
+  # エージェントが id=10 のみ既読にし、残り id=8,9 の max_id=9 になった場合も再通知すべき
+  run should_nudge_inbox 9 10
+  [ "$status" -eq 0 ]
+}
+
+@test "should_nudge_inbox: returns false when no unread messages (max_id=0)" {
   run should_nudge_inbox 0 0
   [ "$status" -ne 0 ]
 }
 
-@test "should_nudge_inbox: returns false when unread was non-zero but now cleared" {
+@test "should_nudge_inbox: returns false when all messages read (max_id cleared to 0)" {
   run should_nudge_inbox 0 5
   [ "$status" -ne 0 ]
 }
 
-@test "should_nudge_inbox: returns false when unread count unchanged (debounce)" {
-  # 同一件数での再送を防ぐ — TUI 入力欄汚染防止の核心
-  run should_nudge_inbox 1 1
+@test "should_nudge_inbox: returns false when max_id unchanged (debounce)" {
+  # 同一 max_id での再送を防ぐ — TUI 入力欄汚染防止の核心
+  run should_nudge_inbox 5 5
   [ "$status" -ne 0 ]
 }
 
-@test "should_nudge_inbox: returns false for large unchanged count (debounce)" {
-  run should_nudge_inbox 5 5
+@test "should_nudge_inbox: returns false when max_id unchanged at 1 (debounce)" {
+  run should_nudge_inbox 1 1
   [ "$status" -ne 0 ]
 }
 

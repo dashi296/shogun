@@ -67,13 +67,18 @@ should_wake_on_report() {
   return 1
 }
 
-# 未読件数が前回通知時から変化した場合に wake ナッジを送るべきか判定する。
+# 最大未読 message ID が前回通知時から変化した場合に wake ナッジを送るべきか判定する。
 # デバウンス用純粋関数: idle チェックは呼び出し側が行う。
-# 引数: <unread_count> <last_notified_count>
+#
+# 件数ではなく最大 ID を比較することで、旧メッセージ既読 + 新メッセージ到着が
+# ポーリング間隔内に同時に起きても「件数が同じ 1」で通知を取りこぼさない
+# （旧 ID=5 既読→新 ID=6 到着: max_id=6 ≠ last=5 → true）。
+#
+# 引数: <max_unread_id> <last_notified_max_id>
 # 戻り値: 0=送るべき, 1=送らなくてよい
 should_nudge_inbox() {
-  local unread="$1" last_notified="$2"
-  [[ "$unread" -gt 0 && "$unread" -ne "$last_notified" ]]
+  local max_id="$1" last_notified_max_id="$2"
+  [[ "$max_id" -gt 0 && "$max_id" -ne "$last_notified_max_id" ]]
 }
 
 # ────────────────────────────────────────────────────────────
@@ -262,23 +267,23 @@ main() {
     _asw_pid=$!
   fi
 
-  # inbox 更新は MCP プル型に移行。cli.js で未読件数を定期確認し、あれば wake ナッジを送る。
-  # デバウンス: 同一未読件数では再送しない。未読件数が変化した場合のみ通知する。
-  local _last_notified_unread=0
+  # inbox 更新は MCP プル型に移行。cli.js で最大未読 ID を定期確認し、変化があれば wake ナッジを送る。
+  # デバウンス: 最大 message ID が変わった場合のみ通知する（件数比較では旧既読+新着の同時発生を取りこぼす）。
+  local _last_notified_max_id=0
   while true; do
     sleep "${SHOGUN_WAKE_CHECK_INTERVAL:-5}"
-    local unread=0
-    unread="$(node "${SHOGUN_BIN_DIR}/packages/mcp-queue/cli.js" \
-      inbox_unread_count \
+    local max_id=0
+    max_id="$(node "${SHOGUN_BIN_DIR}/packages/mcp-queue/cli.js" \
+      inbox_max_unread_id \
       "--root=${ROOT}" \
       "--role=${AGENT_ID}" \
       ${SHOGUN_PROJECT_ID:+"--project-id=${SHOGUN_PROJECT_ID}"} 2>/dev/null || echo 0)"
-    if [[ "$unread" -eq 0 ]]; then
-      _last_notified_unread=0
-    elif should_nudge_inbox "$unread" "$_last_notified_unread" && \
+    if [[ "$max_id" -eq 0 ]]; then
+      _last_notified_max_id=0
+    elif should_nudge_inbox "$max_id" "$_last_notified_max_id" && \
          is_agent_idle "$AGENT_ID" "${SHOGUN_PROJECT_ID:-}"; then
       wake_pane "$PANE"
-      _last_notified_unread="$unread"
+      _last_notified_max_id="$max_id"
     fi
   done &
   _wake_pid=$!

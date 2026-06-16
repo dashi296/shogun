@@ -1376,6 +1376,17 @@ cmd_upgrade() {
         info ".shogun/instructions/*.md を最新化しました。"
       fi
     fi
+    # YAML 形式の inbox に残っている未読メッセージを SQLite へ移行する。
+    # MCP/SQLite 移行後の watcher は SQLite のみを監視するため、
+    # upgrade 前の未読が不可視にならないよう移行を実行する。
+    if [[ -d "${PWD}/.shogun/queue" ]]; then
+      local _migrated=0
+      _migrated="$(NODE_PATH="${SHOGUN_BIN_DIR}/node_modules" \
+        node "${SHOGUN_BIN_DIR}/packages/mcp-queue/cli.js" \
+        migrate_yaml_inbox "--root=${PWD}" 2>/dev/null || echo 0)"
+      [[ "$_migrated" -gt 0 ]] && \
+        info "YAML inbox から ${_migrated} 件の未読メッセージを SQLite に移行しました。"
+    fi
   else
     error "バージョン ${target_version} が見つかりません。"; exit 1
   fi

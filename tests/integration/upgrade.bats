@@ -124,3 +124,44 @@ teardown() {
   run grep -c "queue/inbox/metsuke" ".shogun/instructions/metsuke.md"
   [ "$output" = "0" ]
 }
+
+# ────────────────────────────────────────────────────────────
+# upgrade: YAML inbox 移行（upgrade ロジックの直接呼び出し）
+#
+# shogun upgrade --version ... は git fetch/checkout を必要とするため統合テストで
+# 呼び出せない。upgrade が内部で実行するのと同じ migrate_yaml_inbox CLI を直接
+# 呼び出して、YAML → SQLite 移行が正しく動作することを確認する。
+# ────────────────────────────────────────────────────────────
+
+@test "upgrade: YAML inbox unread messages are migrated to SQLite on upgrade" {
+  shogun init
+
+  # upgrade 前の旧 YAML inbox を模倣して未読メッセージを作成
+  local inbox_dir="${TEST_PROJECT}/.shogun/queue/inbox"
+  mkdir -p "$inbox_dir"
+  cat > "${inbox_dir}/karo.yaml" <<'YAML'
+messages:
+  - id: msg_legacy_001
+    from: taisho
+    timestamp: "2024-01-01T12:00:00Z"
+    subject: "upgrade 前の未読タスク"
+    body: "MCP 移行前に届いたメッセージ"
+    status: unread
+YAML
+
+  # upgrade の移行ステップと同じ CLI 呼び出し
+  run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+    migrate_yaml_inbox "--root=${TEST_PROJECT}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "1" ]
+
+  # SQLite に移行されていること
+  run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+    inbox_unread_count "--root=${TEST_PROJECT}" "--role=karo"
+  [ "$output" = "1" ]
+
+  # YAML がリセットされて重複移行が起きないこと
+  run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+    migrate_yaml_inbox "--root=${TEST_PROJECT}"
+  [ "$output" = "0" ]
+}

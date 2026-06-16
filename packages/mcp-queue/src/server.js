@@ -120,7 +120,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }))
 
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
   const { name, arguments: a = {} } = req.params;
-  const db = getDb(a.project_id || '');
+  const db = getDb(a.project_id || process.env.SHOGUN_PROJECT_ID || '');
 
   let result;
   switch (name) {

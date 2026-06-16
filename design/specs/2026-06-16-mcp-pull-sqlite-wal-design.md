@@ -223,11 +223,11 @@ shogun-mcp-server --role=karo   --allowed-sources="gunshi metsuke ashigaru1 ..."
 |---|---|---|
 | 配信をプル型へ転換 | **確定**（案B の核心） | 外部注入による出力破損の根本解決 |
 | 保管を SQLite（WAL）へ | **確定**（案B の核心） | flock・js-yaml 都度パースを解消 |
-| MCP サーバの言語・ランタイム | **未確定** | Node.js / Python 等。現行 node_modules 資産を流用か |
-| DB ファイルの配置 | **未確定** | `.shogun/queue/queue.db` 案を提示。.gitignore 方針は現行踏襲 |
-| MCP サーバのスコープ | **未確定** | プロジェクト単位1プロセス vs グローバル1プロセス + project_id スコープ |
-| 移行戦略（YAML との共存期） | **未確定** | 段階移行かハードカットオーバーか |
-| ヘッドレス/CI での MCP 不在 | **未確定** | 起動経路の差異・フォールバック方針 |
+| MCP サーバの言語・ランタイム | **確定** | Node.js（`@modelcontextprotocol/sdk` + `better-sqlite3`）。`packages/mcp-queue/` に配置 |
+| DB ファイルの配置 | **確定** | `.shogun/queue/queue.db`（役職別）。`.gitignore` は現行踏襲。WAL ジャーナル（`-wal`/`-shm`）も除外 |
+| MCP サーバのスコープ | **確定** | 役職ごとに1プロセス起動。`--role` 引数で管轄 role を固定 |
+| 移行戦略（YAML との共存期） | **確定** | ハードカットオーバー（共存期なし）。既存テストは全面改訂 |
+| ヘッドレス/CI での MCP 不在 | **確定** | スコープ外（tmux と同様）。`shogun start` が MCP 起動失敗時はエラー終了。フォールバックなし |
 | report_poll の allowlist 方式 | **確定（推奨 A）** | MCP サーバを役職ごとに1プロセス起動し `--role` 引数で管轄 role を固定することで技術的強制を実現。`SHOGUN_REPORT_SOURCES` を起動設定として継承。役職ごとの poll 可能 src_role は上記テーブルのとおり |
 
 ## 案A との比較
@@ -243,7 +243,7 @@ shogun-mcp-server --role=karo   --allowed-sources="gunshi metsuke ashigaru1 ..."
 | 既存テストの移行 | 最小（bash/bats テストほぼ流用） | 大（YAML ベース統合テストの全面改訂） |
 | 依存・運用の複雑さ | 低 | 中（MCP サーバのライフサイクル管理） |
 | 観測性 | 維持（tmux ペインは残る） | 維持（ペインは残す。MCP ログで補完） |
-| CI / ヘッドレス対応 | 変わらず | 要検討（MCP 不在時のフォールバック） |
+| CI / ヘッドレス対応 | 変わらず | スコープ外（tmux と同様。MCP 起動失敗時はエラー終了） |
 
 ## スコープ外
 
@@ -252,12 +252,6 @@ shogun-mcp-server --role=karo   --allowed-sources="gunshi metsuke ashigaru1 ..."
 
 ## 未解決の論点
 
-1. **MCP サーバのプロセス境界**: プロジェクト単位で1プロセスを起動するか、グローバル1プロセス + `project_id` カラムスコープにするか。前者はプロジェクト分離が明確だが起動管理が複雑。後者はシンプルだがプロジェクト間でDB を共有するリスクがある。
+1. **未読ナッジの冪等性**: idle フラグの信頼性は現行 `flag_names.sh` + `stop_hook.sh` に依存する。ナッジの二重打鍵をどう防ぐか（実装段階で検討）。
 
-2. **SQLite ファイルの配置と .gitignore**: `.shogun/queue/queue.db` が自然だが、`.shogun/` は `.gitignore` 対象であり既存の YAML と同様に追跡対象外となる。WAL のジャーナルファイル（`-wal` / `-shm`）も除外が必要。
-
-3. **未読ナッジの最小実装**: idle フラグの信頼性は現行 `flag_names.sh` + `stop_hook.sh` に依存する。ナッジの冪等性（二重打鍵の防止）をどう保証するか。
-
-4. **YAML ベース統合テストの移行戦略**: `tests/unit/` と `tests/integration/` は YAML ファイル操作・bats テストで構成されている。SQLite 移行後は全面改訂が必要。段階的移行（YAML → SQLite デュアルライト期）か一括切り替えか。
-
-5. **ASW（Agent Self-Watch）との整合**: `watch_escalation` の `pane_activity` 判定と3段階エスカレーションはペイン監視を前提とする。MCP プル型でもエスカレーションは必要だが、`pane_activity` の意味が変わる可能性がある。
+2. **ASW タイムアウト値の調整**: MCP ツール呼び出し中はペイン出力がなくなるため、`watch_escalation` の `pane_activity` タイムアウトを現行より大きくする必要がある。適切な値は実装・動作確認後に決定する。

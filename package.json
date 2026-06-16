@@ -3,6 +3,9 @@
   "version": "0.0.18",
   "description": "ローカルAIオーケストレーションフレームワーク",
   "private": true,
+  "workspaces": [
+    "packages/mcp-queue"
+  ],
   "scripts": {
     "test": "tests/bats/bin/bats tests/unit tests/integration",
     "test:unit": "tests/bats/bin/bats tests/unit",

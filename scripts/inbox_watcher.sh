@@ -9,6 +9,9 @@
 set -euo pipefail
 
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# SHOGUN_BIN_DIR が未設定の場合はスクリプト位置から推定する（scripts/ の親ディレクトリ）
+SHOGUN_BIN_DIR="${SHOGUN_BIN_DIR:-$(cd "${_SCRIPT_DIR}/.." && pwd)}"
+export SHOGUN_BIN_DIR
 export NODE_PATH="${_SCRIPT_DIR}/../node_modules${NODE_PATH:+:$NODE_PATH}"
 
 # フラグ命名は scripts/flag_names.sh に集約（mark_busy.sh / stop_hook.sh /

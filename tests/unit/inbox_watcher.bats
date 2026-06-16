@@ -405,3 +405,48 @@ setup() {
   [ "$status" -ne 0 ]
 }
 
+# ────────────────────────────────────────────────────────────
+# should_nudge_inbox: 未読件数変化によるデバウンス判定
+#
+# 同一未読件数での連続 wake ナッジを防ぐ純粋関数。
+# - unread > 0 かつ last_notified と異なる場合のみ true (0)
+# - unread == 0 (既読) または unread == last_notified (変化なし) では false (1)
+# ────────────────────────────────────────────────────────────
+
+@test "should_nudge_inbox: returns true for first notification (last_notified=0, unread=1)" {
+  run should_nudge_inbox 1 0
+  [ "$status" -eq 0 ]
+}
+
+@test "should_nudge_inbox: returns true when unread count increases" {
+  run should_nudge_inbox 2 1
+  [ "$status" -eq 0 ]
+}
+
+@test "should_nudge_inbox: returns true when unread count decreases (partial read)" {
+  # エージェントが3件中2件を既読にし、残り1件になった場合も再通知すべき
+  run should_nudge_inbox 1 3
+  [ "$status" -eq 0 ]
+}
+
+@test "should_nudge_inbox: returns false when no unread messages" {
+  run should_nudge_inbox 0 0
+  [ "$status" -ne 0 ]
+}
+
+@test "should_nudge_inbox: returns false when unread was non-zero but now cleared" {
+  run should_nudge_inbox 0 5
+  [ "$status" -ne 0 ]
+}
+
+@test "should_nudge_inbox: returns false when unread count unchanged (debounce)" {
+  # 同一件数での再送を防ぐ — TUI 入力欄汚染防止の核心
+  run should_nudge_inbox 1 1
+  [ "$status" -ne 0 ]
+}
+
+@test "should_nudge_inbox: returns false for large unchanged count (debounce)" {
+  run should_nudge_inbox 5 5
+  [ "$status" -ne 0 ]
+}
+

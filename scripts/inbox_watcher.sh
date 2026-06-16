@@ -67,6 +67,15 @@ should_wake_on_report() {
   return 1
 }
 
+# 未読件数が前回通知時から変化した場合に wake ナッジを送るべきか判定する。
+# デバウンス用純粋関数: idle チェックは呼び出し側が行う。
+# 引数: <unread_count> <last_notified_count>
+# 戻り値: 0=送るべき, 1=送らなくてよい
+should_nudge_inbox() {
+  local unread="$1" last_notified="$2"
+  [[ "$unread" -gt 0 && "$unread" -ne "$last_notified" ]]
+}
+
 # ────────────────────────────────────────────────────────────
 # wake-up 送出
 # ────────────────────────────────────────────────────────────
@@ -254,6 +263,8 @@ main() {
   fi
 
   # inbox 更新は MCP プル型に移行。cli.js で未読件数を定期確認し、あれば wake ナッジを送る。
+  # デバウンス: 同一未読件数では再送しない。未読件数が変化した場合のみ通知する。
+  local _last_notified_unread=0
   while true; do
     sleep "${SHOGUN_WAKE_CHECK_INTERVAL:-5}"
     local unread=0
@@ -262,8 +273,12 @@ main() {
       "--root=${ROOT}" \
       "--role=${AGENT_ID}" \
       ${SHOGUN_PROJECT_ID:+"--project-id=${SHOGUN_PROJECT_ID}"} 2>/dev/null || echo 0)"
-    if [[ "$unread" -gt 0 ]]; then
+    if [[ "$unread" -eq 0 ]]; then
+      _last_notified_unread=0
+    elif should_nudge_inbox "$unread" "$_last_notified_unread" && \
+         is_agent_idle "$AGENT_ID" "${SHOGUN_PROJECT_ID:-}"; then
       wake_pane "$PANE"
+      _last_notified_unread="$unread"
     fi
   done &
   _wake_pid=$!

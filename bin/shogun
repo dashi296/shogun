@@ -341,13 +341,18 @@ cmd_init() {
   local agents
   read -ra agents <<< "$(ashigaru_agents "$init_count")"
   for agent in "${agents[@]}"; do
-    echo "messages: []"   > "${shogun_dir}/queue/inbox/${agent}.yaml"
     echo "tasks: []"      > "${shogun_dir}/queue/tasks/${agent}.yaml"
     echo "reports: []"    > "${shogun_dir}/queue/reports/${agent}_report.yaml"
     case "$agent" in
       ashigaru*) echo "reviews: []" > "${shogun_dir}/queue/reviews/${agent}_review.yaml" ;;
     esac
   done
+
+  # SQLite キューを初期化（cli.js が initSchema を呼ぶことで DB とスキーマを作成）
+  info "SQLite キューを初期化中..."
+  node "${SHOGUN_BIN_DIR}/packages/mcp-queue/cli.js" \
+    inbox_unread_count --root="$project_dir" --role=taisho 2>/dev/null || true
+  success "SQLite キュー初期化完了"
 
   # templates/.mcp.json → プロジェクトルートの .mcp.json に生成（既存時はスキップ）
   # MEMORY_FILE_PATH は起動ディレクトリに依存しないよう絶対パスで埋め込む
@@ -530,12 +535,14 @@ fs.writeFileSync(queueFile, yaml.dump(data, {allowUnicode: true}));
   info "説明: ${task_desc}"
   info "優先度: ${priority}"
 
-  # inbox_write.sh 経由で taisho に通知
-  SHOGUN_ROOT="${SHOGUN_ROOT}" SHOGUN_ROLE=shogun \
-    bash "${SHOGUN_BIN_DIR}/scripts/inbox_write.sh" \
-    taisho \
-    "新規タスク: ${cmd_id}" \
-    "${task_desc}"
+  # SQLite inbox へ通知（cli.js 経由）
+  node "${SHOGUN_BIN_DIR}/packages/mcp-queue/cli.js" inbox_send \
+    "--root=${SHOGUN_ROOT}" \
+    "--from=shogun" \
+    "--to=taisho" \
+    "--subject=新規タスク: ${cmd_id}" \
+    "--body=${task_desc}" \
+    ${SHOGUN_PROJECT_ID:+"--project-id=${SHOGUN_PROJECT_ID}"}
 }
 
 _role_color() {
@@ -721,8 +728,9 @@ process.stdout.write([
   _set_pane_role_label "$taisho_pane" "taisho"
 
   if [[ "$setup_only" == "false" ]]; then
-    local taisho_cmd
-    taisho_cmd="cd ${SHOGUN_ROOT} && SHOGUN_ROLE=taisho SHOGUN_ROOT=${SHOGUN_ROOT} SHOGUN_BIN_DIR=${SHOGUN_BIN_DIR} ${project_id_env}claude --model ${taisho_model} ${claude_opts} --add-dir ${SHOGUN_ROOT}/.shogun"
+    local taisho_cmd taisho_mcp_cfg
+    taisho_mcp_cfg="${SHOGUN_ROOT}/.shogun/mcp/taisho.json"
+    taisho_cmd="cd ${SHOGUN_ROOT} && SHOGUN_ROLE=taisho SHOGUN_ROOT=${SHOGUN_ROOT} SHOGUN_BIN_DIR=${SHOGUN_BIN_DIR} ${project_id_env}claude --model ${taisho_model} ${claude_opts} --add-dir ${SHOGUN_ROOT}/.shogun --mcp-config ${taisho_mcp_cfg}"
     tmux send-keys -t "${session_taisho}:0" "$taisho_cmd" Enter
   fi
 
@@ -737,6 +745,36 @@ process.stdout.write([
   for ((i=1; i<=ashigaru_count; i++)); do
     pane_roles+=("ashigaru${i}")
   done
+
+  # ─── MCP サーバを役職ごとに起動 ───────────────────────────────
+  info "MCP サーバを起動中..."
+  local _mcp_karo_sources=""
+  local _r
+  for _r in "${pane_roles[@]}"; do
+    [[ "$_r" == "karo" ]] && continue
+    _mcp_karo_sources+="${_mcp_karo_sources:+,}${_r}"
+  done
+
+  local _mcp_all_roles=("taisho" "karo" "gunshi" "metsuke")
+  local _mcp_i
+  for ((_mcp_i=1; _mcp_i<=ashigaru_count; _mcp_i++)); do
+    _mcp_all_roles+=("ashigaru${_mcp_i}")
+  done
+
+  local _mcp_role _mcp_allowed
+  for _mcp_role in "${_mcp_all_roles[@]}"; do
+    case "$_mcp_role" in
+      taisho)    _mcp_allowed="karo" ;;
+      karo)      _mcp_allowed="${_mcp_karo_sources}" ;;
+      *)         _mcp_allowed="" ;;
+    esac
+    bash "${SHOGUN_BIN_DIR}/scripts/mcp_manager.sh" start \
+      "$_mcp_role" "$SHOGUN_ROOT" "${_mcp_allowed}" 2>/dev/null || {
+        error "MCP サーバの起動に失敗しました: ${_mcp_role}"
+        exit 1
+      }
+  done
+  success "MCP サーバを起動しました（${#_mcp_all_roles[@]} 役職）"
 
   local total_panes=${#pane_roles[@]}
 
@@ -774,8 +812,9 @@ process.stdout.write([
     if [[ "$setup_only" == "false" ]]; then
       # ペインのモデルを決定
       local model="$worker_model"
-      local role_cmd
-      role_cmd="cd ${SHOGUN_ROOT} && SHOGUN_ROLE=${role} SHOGUN_ROOT=${SHOGUN_ROOT} SHOGUN_BIN_DIR=${SHOGUN_BIN_DIR} ${project_id_env}claude --model ${model} ${claude_opts} --add-dir ${SHOGUN_ROOT}/.shogun"
+      local role_cmd role_mcp_cfg
+      role_mcp_cfg="${SHOGUN_ROOT}/.shogun/mcp/${role}.json"
+      role_cmd="cd ${SHOGUN_ROOT} && SHOGUN_ROLE=${role} SHOGUN_ROOT=${SHOGUN_ROOT} SHOGUN_BIN_DIR=${SHOGUN_BIN_DIR} ${project_id_env}claude --model ${model} ${claude_opts} --add-dir ${SHOGUN_ROOT}/.shogun --mcp-config ${role_mcp_cfg}"
       tmux send-keys -t "$pane_id" "$role_cmd" Enter
     fi
   done
@@ -878,6 +917,9 @@ cmd_stop() {
   _SHOGUN_STOPPED_COUNT=0
   stop_sessions_and_watchers "$include_legacy"
 
+  bash "${SHOGUN_BIN_DIR}/scripts/mcp_manager.sh" stop_all "$SHOGUN_ROOT" 2>/dev/null || true
+  info "MCP サーバを停止しました。"
+
   if [[ "$_SHOGUN_STOPPED_COUNT" -gt 0 ]]; then
     success "Shogun を停止しました。"
   else
@@ -930,6 +972,8 @@ cmd_reset() {
   # セッションと孤児 watcher を停止
   _SHOGUN_STOPPED_COUNT=0
   stop_sessions_and_watchers 0
+
+  bash "${SHOGUN_BIN_DIR}/scripts/mcp_manager.sh" stop_all "$SHOGUN_ROOT" 2>/dev/null || true
 
   # キューリセット（バックアップなし）
   reset_queue_files "$ashigaru_count"

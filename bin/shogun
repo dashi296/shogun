@@ -1357,6 +1357,22 @@ cmd_upgrade() {
         info ".claude/settings.json のフックを最新化しました（SessionStart / Stop / UserPromptSubmit）。"
       fi
     fi
+    # .shogun/CLAUDE.md と instructions/*.md を最新テンプレートで上書き更新。
+    # MCP/SQLite 等の通信プロトコル変更に既存プロジェクトのエージェント指示を追随させる。
+    # settings.json と異なりユーザーカスタマイズを想定しない管理ファイルなので無条件上書き。
+    local _shogun_dir="${PWD}/.shogun"
+    if [[ -d "${_shogun_dir}" ]]; then
+      local _claude_md_src="${SHOGUN_BIN_DIR}/templates/CLAUDE.md"
+      if [[ -f "${_claude_md_src}" ]]; then
+        cp "${_claude_md_src}" "${_shogun_dir}/CLAUDE.md"
+        info ".shogun/CLAUDE.md を最新化しました（通信プロトコルを更新）。"
+      fi
+      local _inst_src="${SHOGUN_BIN_DIR}/templates/instructions"
+      if [[ -d "${_shogun_dir}/instructions" && -d "${_inst_src}" ]]; then
+        cp "${_inst_src}/"*.md "${_shogun_dir}/instructions/"
+        info ".shogun/instructions/*.md を最新化しました。"
+      fi
+    fi
   else
     error "バージョン ${target_version} が見つかりません。"; exit 1
   fi

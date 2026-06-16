@@ -235,3 +235,61 @@ fs.writeFileSync(cfg, yaml.dump(d, {allowUnicode: true}));
   run cat ".shogun/queue/reviews/ashigaru1_review.yaml"
   [ "$output" = "reviews: []" ]
 }
+
+# ── MCP サーバ起動・設定ファイル生成のテスト ──
+
+@test "start: creates MCP config JSON for taisho" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+  [ -f ".shogun/mcp/taisho.json" ]
+}
+
+@test "start: taisho MCP config contains allowed-sources=karo" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+  run node -e "
+const d = JSON.parse(require('fs').readFileSync('.shogun/mcp/taisho.json', 'utf8'));
+const args = Object.values(d.mcpServers)[0].args.join(' ');
+process.stdout.write(args);
+"
+  [[ "$output" == *"--allowed-sources=karo"* ]]
+}
+
+@test "start: creates MCP config JSON for each role" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+  for role in karo gunshi metsuke ashigaru1; do
+    [ -f ".shogun/mcp/${role}.json" ]
+  done
+}
+
+@test "start: karo MCP config has correct allowed-sources (subordinates)" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+  run node -e "
+const d = JSON.parse(require('fs').readFileSync('.shogun/mcp/karo.json', 'utf8'));
+const args = Object.values(d.mcpServers)[0].args.join(' ');
+process.stdout.write(args);
+"
+  # karo は gunshi, metsuke, ashigaru{N} を受け取る allowlist を持つ
+  [[ "$output" == *"--allowed-sources="* ]]
+  [[ "$output" == *"gunshi"* ]]
+  [[ "$output" == *"metsuke"* ]]
+}
+
+@test "start: worker roles have MCP config with correct server name" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+  for role in gunshi metsuke ashigaru1; do
+    run node -e "
+const d = JSON.parse(require('fs').readFileSync('.shogun/mcp/${role}.json', 'utf8'));
+process.stdout.write(Object.keys(d.mcpServers)[0]);
+"
+    [ "$output" = "shogun-mcp-queue-${role}" ]
+  done
+}

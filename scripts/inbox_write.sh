@@ -24,6 +24,13 @@ body="${3:-}"
 root="${SHOGUN_ROOT:-${CLAUDE_PROJECT_DIR:-$PWD}}"
 from_role="${SHOGUN_ROLE:-unknown}"
 
+# SHOGUN_ROOT が .shogun ディレクトリ自体を指している場合は誤設定として拒否する。
+# そのまま渡すと .shogun/.shogun/queue/queue.db へ書き込まれ通知が失われる。
+[[ "$(basename "${root}")" == ".shogun" ]] && {
+  echo "ERROR: SHOGUN_ROOT は .shogun の親ディレクトリを指定してください（現在: ${root}）" >&2
+  exit 1
+}
+
 [[ "$to_role"   =~ ^[A-Za-z0-9_-]+$ ]] || { echo "ERROR: invalid to_role: ${to_role}" >&2; exit 1; }
 [[ "$from_role" =~ ^[A-Za-z0-9_-]+$ ]] || from_role="unknown"
 

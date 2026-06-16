@@ -93,6 +93,14 @@ teardown() {
   [[ "$output" =~ "未読: 0 件" ]]
 }
 
+@test "inbox_write compat: rejects SHOGUN_ROOT pointing to .shogun dir" {
+  local shogun_dir="${TMP_ROOT}/.shogun"
+  mkdir -p "$shogun_dir"
+  SHOGUN_ROOT="$shogun_dir" run bash "${SHOGUN_REPO}/scripts/inbox_write.sh" taisho "subject"
+  [ "$status" -ne 0 ]
+  [[ "$output" =~ ".shogun" ]]
+}
+
 @test "cli.js inbox_list: rejects path-traversal project-id" {
   run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
     inbox_list "--root=${TMP_ROOT}" "--role=taisho" "--project-id=../../evil"

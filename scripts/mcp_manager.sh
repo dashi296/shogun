@@ -30,19 +30,11 @@ mcp_start() {
   fi
   mkdir -p "$(_mcp_dir "$root")"
 
-  # 既存プロセスが残っていれば停止
-  mcp_stop "$role" "$root" 2>/dev/null || true
+  # StdioServerTransport はバックグラウンドで /dev/null stdin を渡すと stdin EOF を
+  # 検知して即終了するため、サーバプロセスを shogun 側で起動しない。
+  # Claude Code が --mcp-config で渡された .json を読み、必要時にサーバを自己管理する。
 
-  # サーバ起動
-  node "$MCP_SERVER" \
-    "--role=${role}" \
-    "--root=${root}" \
-    ${allowed_sources:+"--allowed-sources=${allowed_sources}"} \
-    </dev/null >>"${root}/.shogun/mcp/${role}.log" 2>&1 &
-  local pid=$!
-  echo "$pid" > "$(_pid_file "$role" "$root")"
-
-  # .shogun/mcp/<role>.json を生成（役職専用サーバのみを列挙）
+  # .shogun/mcp/<role>.json を生成（Claude Code が起動時に読み込む）
   # 環境変数経由で値を渡すことで node -e へのコマンドインジェクションを防ぐ
   local cfg_file; cfg_file="$(_cfg_file "$role" "$root")"
   _MCP_SERVER="$MCP_SERVER" _ROLE="$role" _ROOT="$root" \

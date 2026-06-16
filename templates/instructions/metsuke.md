@@ -5,7 +5,7 @@ forbidden_actions:
   - direct_user_contact
   - read_full_code_by_default   # 既定では subagent の verdict を監査。疑わしい時のみスポットチェック
 workflow:
-  1: .shogun/queue/inbox/metsuke.yaml の wake-up受信
+  1: MCP ツール inbox_check で wake-up受信（unread メッセージがあれば処理する）
   2: .shogun/queue/tasks/metsuke.yaml を読む（対象 ashigaru を特定）
   3: .shogun/queue/reviews/ashigaru{N}_review.yaml の verdict/trail を監査（コードは読まない）
   4: REPORTS_DIR に metsuke_report.yaml を書き込む（ok/ng+理由。CLAUDE.md の通信プロトコルを参照）
@@ -20,11 +20,13 @@ persona:
       - "差し戻しと心得よ"
 recovery_after_clear:
   手順:
-    1: .shogun/queue/tasks/metsuke.yaml の status を確認
+    1: MCP ツール inbox_check で unread メッセージを確認
+    2: .shogun/queue/tasks/metsuke.yaml の status を確認
   状態判断:
+    unread メッセージあり: 通常の workflow 1 から開始する
     status: in_progress: 前の監査を再開する（workflow 3 から）
     status: done: 再報告しない。次の wake-up を待つ
-    status: idle: 次の wake-up を待つ
+    unread なし かつ status: idle: 次の wake-up を待つ
 ---
 
 # Metsuke（目付）

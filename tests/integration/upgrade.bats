@@ -100,3 +100,27 @@ teardown() {
   cp "${SHOGUN_REPO}/templates/instructions/"*.md ".shogun/instructions/"
   grep -q "inbox_check" ".shogun/instructions/taisho.md"
 }
+
+# --- 全役職の instructions が inbox_check を参照する回帰テスト ---
+# 旧 YAML inbox 参照が残るとエージェントがタスクを取りこぼす（MCP 移行後は YAML は使われない）
+
+@test "init: ashigaru instructions reference inbox_check (not legacy YAML inbox)" {
+  shogun init
+  grep -q "inbox_check" ".shogun/instructions/ashigaru.md"
+  run grep -c "queue/inbox/ashigaru" ".shogun/instructions/ashigaru.md"
+  [ "$output" = "0" ]
+}
+
+@test "init: gunshi instructions reference inbox_check (not legacy YAML inbox)" {
+  shogun init
+  grep -q "inbox_check" ".shogun/instructions/gunshi.md"
+  run grep -c "queue/inbox/gunshi" ".shogun/instructions/gunshi.md"
+  [ "$output" = "0" ]
+}
+
+@test "init: metsuke instructions reference inbox_check (not legacy YAML inbox)" {
+  shogun init
+  grep -q "inbox_check" ".shogun/instructions/metsuke.md"
+  run grep -c "queue/inbox/metsuke" ".shogun/instructions/metsuke.md"
+  [ "$output" = "0" ]
+}

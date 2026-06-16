@@ -81,10 +81,20 @@ CREATE TABLE reports (
   project_id  TEXT NOT NULL DEFAULT '',
   src_role    TEXT NOT NULL,
   payload     TEXT NOT NULL,             -- YAML 文字列 or JSON
-  created_at  TEXT NOT NULL,
-  consumed_at TEXT
+  created_at  TEXT NOT NULL
+);
+
+-- 報告の購読者別消費状態（Karo と Metsuke が同じ Ashigaru report を独立して取得できるよう分離）
+CREATE TABLE report_reads (
+  report_id   INTEGER NOT NULL REFERENCES reports(id),
+  role        TEXT NOT NULL,
+  consumed_at TEXT NOT NULL,
+  PRIMARY KEY (report_id, role)
 );
 ```
+
+`report_poll` は `report_reads` に自サーバの role エントリが存在しない report を返す。
+消費済みにする際は `report_reads(report_id, role, consumed_at)` に INSERT する（同一 report を複数役職が独立して消費可能）。
 
 **WAL モードの利点:**
 - 複数リーダー + 単一ライターを許容（現行の `flock` 排他が不要）
@@ -179,7 +189,7 @@ shogun-mcp-server --role=karo   --allowed-sources="gunshi metsuke ashigaru1 ..."
 
 各サーバプロセスは自分が管轄する role の `report_poll` リクエストのみを受け付け、
 許可された `sources` 以外のデータを返さない。呼び出し元が `from_role` を引数で渡す設計は採らない（詐称可能なため）。
-`shogun start` は役職ごとに**その役職専用のサーバだけを列挙した `.mcp.json`** を生成・配置し、エージェントは自分の role のサーバにしか接続できない構成にする（全役職のサーバを同一 `.mcp.json` に列挙すると Ashigaru が Taisho 用サーバを呼べてしまい `--role` 分離がアクセス制御にならない）。
+`shogun start` は役職ごとに**その役職専用のサーバだけを列挙した MCP 設定ファイル**（`.shogun/mcp/{role}.json`）を生成し、各エージェントの Claude Code 起動時に `--mcp-config .shogun/mcp/{role}.json` を渡すことでそのファイルのみを参照させる。全役職が同一 `SHOGUN_ROOT` で起動するため、プロジェクト直下の共有 `.mcp.json` による分離は成立しない（全役職のサーバが列挙されてしまう）。`--mcp-config` による役職別設定パスの指定が分離の唯一の実現手段となる。
 
 この方式は Option C と実質同一の環境変数継承を使いながら、サーバプロセス分離によって技術的強制を実現する。
 

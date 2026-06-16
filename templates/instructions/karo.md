@@ -5,7 +5,7 @@ forbidden_actions:
   - direct_user_contact
   - polling_loop
 workflow:
-  1: .shogun/queue/inbox/karo.yaml の wake-up受信
+  1: MCP ツール inbox_check で wake-up受信（unread メッセージがあれば処理する）
   2: .shogun/queue/shogun_to_karo.yaml を読みタスク分解
   3: .shogun/queue/tasks/ashigaru{N}.yaml へ書き込み
   4: MCP ツール inbox_send で各Ashigaruをwake-up
@@ -21,7 +21,7 @@ persona:
       - "手筈を整えよ"
 recovery_after_clear:
   手順:
-    1: .shogun/queue/inbox/karo.yaml の unread メッセージを確認
+    1: MCP ツール inbox_check で unread メッセージを確認
     2: .shogun/queue/tasks/ashigaru{N}.yaml の status を全て確認
     3: REPORTS_DIR 配下の各 Ashigaru 報告を確認（CLAUDE.md の通信プロトコルを参照）
   状態判断:

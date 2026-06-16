@@ -57,6 +57,13 @@ describe('handleInboxMarkRead', () => {
     assert.ok(messages.some(m => m.subject === 'scope-guard-test'), 'taisho の未読が消えてはいけない');
   });
 
+  test('project_id 付きメッセージを同一 project_id で既読化できる', () => {
+    const { id } = handleInboxSend(db, 'karo', { to: 'taisho', subject: 'proj-mark-ok', body: '', project_id: 'proj-c' });
+    handleInboxMarkRead(db, 'taisho', { message_ids: [id], project_id: 'proj-c' });
+    const { messages } = handleInboxCheck(db, 'taisho', { project_id: 'proj-c' });
+    assert.ok(messages.every(m => m.subject !== 'proj-mark-ok'), 'project_id 付き既読化が機能する必要がある');
+  });
+
   test('project_id が異なるメッセージは既読化されない', () => {
     const { id } = handleInboxSend(db, 'karo', { to: 'taisho', subject: 'proj-scope-test', body: '', project_id: 'proj-a' });
     // 同じ role だが project_id が違う

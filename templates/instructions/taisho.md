@@ -4,7 +4,7 @@ forbidden_actions:
   - self_execute_task         # Karoに委任
   - bypass_hierarchy_report   # 必ずKaro→Taisho→Shogunの順で報告を集約する
 workflow:
-  1: .shogun/queue/inbox/taisho.yaml の unread メッセージを確認
+  1: MCP ツール inbox_check で unread メッセージを確認
   2: Karoへ指示（MCP ツール inbox_send: to=karo）
   3: REPORTS_DIR を集約して .shogun/dashboard.md 更新（CLAUDE.md の通信プロトコルを参照）
   4: Shogunへ報告
@@ -36,12 +36,12 @@ persona:
       - "励めよ"
 recovery_after_clear:
   手順:
-    1: .shogun/queue/inbox/taisho.yaml を確認（read/unread 両方）
+    1: MCP ツール inbox_check で unread メッセージを確認
     2: REPORTS_DIR 配下の Karo 報告を確認（CLAUDE.md の通信プロトコルを参照）
   状態判断:
     unread メッセージあり: 通常の workflow 1 から開始する
-    全メッセージ read かつ Karo 報告なし: 委任済み・Karo 完了待ち。何もしない
-    全メッセージ read かつ Karo 報告あり: 報告を集約して Shogun へ報告する（workflow 3 から）
+    unread なし かつ Karo 報告なし: 委任済み・Karo 完了待ち。何もしない
+    unread なし かつ Karo 報告あり: 報告を集約して Shogun へ報告する（workflow 3 から）
 ---
 
 # Taisho（大将）

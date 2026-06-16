@@ -7,7 +7,7 @@
     "packages/mcp-queue"
   ],
   "scripts": {
-    "test": "tests/bats/bin/bats tests/unit tests/integration",
+    "test": "tests/bats/bin/bats tests/unit tests/integration && npm run test:mcp",
     "test:unit": "tests/bats/bin/bats tests/unit",
     "test:integration": "tests/bats/bin/bats tests/integration",
     "test:mcp": "cd packages/mcp-queue && npm test"

@@ -81,7 +81,8 @@ const TOOLS = [
       type: 'object',
       required: ['message_ids'],
       properties: {
-        message_ids: { type: 'array', items: { type: 'number' } }
+        message_ids: { type: 'array', items: { type: 'number' } },
+        project_id:  { type: 'string' }
       }
     }
   },

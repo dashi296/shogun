@@ -20,6 +20,14 @@ _cfg_file() { echo "$(_mcp_dir "$2")/${1}.json"; }
 mcp_start() {
   local role="$1" root="$2" allowed_sources="${3:-}"
   [[ "$role" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "ERROR: invalid role: $role" >&2; exit 1; }
+  # allowed_sources はカンマ区切り role リスト。各要素を検証する
+  if [[ -n "$allowed_sources" ]]; then
+    local _src
+    IFS=',' read -ra _src_arr <<< "$allowed_sources"
+    for _src in "${_src_arr[@]}"; do
+      [[ "$_src" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "ERROR: invalid source in allowed_sources: $_src" >&2; exit 1; }
+    done
+  fi
   mkdir -p "$(_mcp_dir "$root")"
 
   # 既存プロセスが残っていれば停止
@@ -35,14 +43,18 @@ mcp_start() {
   echo "$pid" > "$(_pid_file "$role" "$root")"
 
   # .shogun/mcp/<role>.json を生成（役職専用サーバのみを列挙）
+  # 環境変数経由で値を渡すことで node -e へのコマンドインジェクションを防ぐ
   local cfg_file; cfg_file="$(_cfg_file "$role" "$root")"
-  node -e "
-const fs = require('fs');
-const args = ['${MCP_SERVER}', '--role=${role}', '--root=${root}'];
-if ('${allowed_sources}') args.push('--allowed-sources=${allowed_sources}');
-const cfg = { mcpServers: { 'shogun-mcp-queue-${role}': { command: 'node', args } } };
-fs.writeFileSync('${cfg_file}', JSON.stringify(cfg, null, 2) + '\n');
-"
+  _MCP_SERVER="$MCP_SERVER" _ROLE="$role" _ROOT="$root" \
+  _ALLOWED="$allowed_sources" _CFG="$cfg_file" \
+  node -e '
+const fs = require("fs");
+const { _MCP_SERVER: srv, _ROLE: role, _ROOT: root, _ALLOWED: allowed, _CFG: cfg } = process.env;
+const args = [srv, "--role=" + role, "--root=" + root];
+if (allowed) args.push("--allowed-sources=" + allowed);
+const data = { mcpServers: { ["shogun-mcp-queue-" + role]: { command: "node", args } } };
+fs.writeFileSync(cfg, JSON.stringify(data, null, 2) + "\n");
+'
 }
 
 mcp_stop() {

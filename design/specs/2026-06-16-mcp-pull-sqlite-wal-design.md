@@ -105,11 +105,13 @@ MCP サーバを `.mcp.json` でプロジェクトに配布し、Claude が自�
 
 | ツール名 | 引数 | 戻り値 | 現行対応 |
 |---|---|---|---|
-| `inbox_check(role, project_id?)` | role: string | 未読メッセージ一覧 | `wake_up_inbox` → node パース |
-| `inbox_send(from, to, subject, body, project_id?)` | — | 採番 id | `inbox_write.sh` 全体 |
+| `inbox_check(project_id?)` | — | 未読メッセージ一覧 | `wake_up_inbox` → node パース |
+| `inbox_send(to, subject, body, project_id?)` | — | 採番 id | `inbox_write.sh` 全体 |
 | `inbox_mark_read(message_ids)` | ids: string[] | — | YAML の status 書き換え |
-| `report_submit(src, payload, project_id?)` | — | id | `inbox_write.sh` の reports 書き込み |
+| `report_submit(payload, project_id?)` | — | id | `inbox_write.sh` の reports 書き込み |
 | `report_poll(sources, project_id?)` | sources: string[] | 未消費報告一覧 | `watch_reports` + `should_wake_on_report` |
+
+> **呼び出し元 role は引数で受け取らない**: `inbox_check` の閲覧対象 role、`inbox_send` の `from`、`report_submit` の `src` はすべてサーバ起動時の `--role` 引数から導出する。引数渡しにすると呼び出し側が任意の role を詐称できるため、`report_poll` と同じ方針で統一する。
 
 **MCP サーバの実体:**
 - SQLite を裏に持つ Node.js プロセス（例: `@shogun/mcp-queue`）
@@ -177,7 +179,7 @@ shogun-mcp-server --role=karo   --allowed-sources="gunshi metsuke ashigaru1 ..."
 
 各サーバプロセスは自分が管轄する role の `report_poll` リクエストのみを受け付け、
 許可された `sources` 以外のデータを返さない。呼び出し元が `from_role` を引数で渡す設計は採らない（詐称可能なため）。
-Claude の `.mcp.json` にはそれぞれの役職用サーバが設定され、エージェントは自分の role のサーバに接続する。
+`shogun start` は役職ごとに**その役職専用のサーバだけを列挙した `.mcp.json`** を生成・配置し、エージェントは自分の role のサーバにしか接続できない構成にする（全役職のサーバを同一 `.mcp.json` に列挙すると Ashigaru が Taisho 用サーバを呼べてしまい `--role` 分離がアクセス制御にならない）。
 
 この方式は Option C と実質同一の環境変数継承を使いながら、サーバプロセス分離によって技術的強制を実現する。
 

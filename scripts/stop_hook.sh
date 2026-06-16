@@ -143,20 +143,13 @@ if [[ "$stop_hook_active" != "true" ]]; then
   fi
 fi
 
-if [[ -n "${SHOGUN_PROJECT_ID:-}" ]]; then
-  INBOX="${ROOT}/.shogun/queue/projects/${SHOGUN_PROJECT_ID}/inbox/${AGENT}.yaml"
-else
-  INBOX="${ROOT}/.shogun/queue/inbox/${AGENT}.yaml"
-fi
-
 unread=0
-if [[ -f "$INBOX" ]]; then
-  unread=$(node -e '
-const yaml = require("js-yaml");
-const data = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
-const msgs = (data.messages || []).filter(m => m.status === "unread");
-process.stdout.write(String(msgs.length));
-' -- "$INBOX" 2>/dev/null || echo "0")
+if [[ -n "${SHOGUN_BIN_DIR:-}" ]]; then
+  unread=$(node "${SHOGUN_BIN_DIR}/packages/mcp-queue/cli.js" \
+    inbox_unread_count \
+    "--root=${ROOT}" \
+    "--role=${AGENT}" \
+    ${SHOGUN_PROJECT_ID:+"--project-id=${SHOGUN_PROJECT_ID}"} 2>/dev/null || echo 0)
 fi
 
 # ブロック判定: 未読メッセージまたはレポート未記入がある場合、stop_hook_active=false のときのみブロック

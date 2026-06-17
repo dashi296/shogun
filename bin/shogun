@@ -1004,7 +1004,75 @@ cmd_reset() {
 # shogun view の描画関数（テストから直接呼び出し可能）
 # ════════════════════════════════════════════════════════════
 _view_render() {
-  echo "TODO"
+  local config_file="${SHOGUN_ROOT}/.shogun/config.yaml"
+  local project_name
+  project_name="$(read_project_name "$config_file")"
+
+  local session_taisho session_multi
+  read -r session_taisho session_multi <<< "$(project_session_names "$project_name" "$SHOGUN_ROOT")" || true
+
+  local now
+  now="$(date '+%H:%M:%S')"
+
+  # ─── ヘッダー
+  echo -e "${BOLD}${MAGENTA}╔══════════════════════════════════════════════════╗${RESET}"
+  echo -e "${BOLD}${MAGENTA}  ⛩  Shogun View: ${project_name}       更新: ${now}${RESET}"
+  echo -e "${BOLD}${MAGENTA}╚══════════════════════════════════════════════════╝${RESET}"
+  echo ""
+
+  # ─── コマンドキュー（後タスクで実装、ここでは省略）
+  echo -e "${BOLD}[ コマンドキュー ]${RESET}"
+  echo "  （準備中）"
+  echo ""
+
+  # ─── エージェント一覧
+  echo -e "${BOLD}[ エージェント ]${RESET}"
+
+  local ashigaru_count
+  ashigaru_count="$(read_ashigaru_count "$config_file")"
+
+  local agents
+  read -ra agents <<< "$(ashigaru_agents "$ashigaru_count")"
+
+  # flag_names.sh の shogun_idle_flag() を利用するために source
+  source "${SHOGUN_BIN_DIR}/scripts/flag_names.sh"
+
+  local project_id="${SHOGUN_PROJECT_ID:-}"
+
+  for agent in "${agents[@]}"; do
+    # busy/idle 判定
+    local flag
+    flag="$(shogun_idle_flag "$agent" "$project_id")"
+    local state_label state_color
+    if [[ -f "$flag" ]]; then
+      state_label="idle"
+      state_color="${GREEN}"
+    else
+      state_label="BUSY"
+      state_color="${YELLOW}"
+    fi
+
+    # inbox 未読数
+    local inbox_count=0
+    if [[ -n "${SHOGUN_BIN_DIR:-}" ]]; then
+      inbox_count=$(node "${SHOGUN_BIN_DIR}/packages/mcp-queue/cli.js" \
+        inbox_unread_count \
+        "--root=${SHOGUN_ROOT}" \
+        "--role=${agent}" \
+        ${project_id:+"--project-id=${project_id}"} 2>/dev/null || echo 0)
+    fi
+
+    printf "${BOLD}%-9s${RESET} ${state_color}● %-4s${RESET}  inbox:%s\n" \
+      "$agent" "$state_label" "$inbox_count"
+
+    # タスク名（後タスクで実装、ここでは「（タスクなし）」固定）
+    echo "  ↳ （タスクなし）"
+    echo ""
+  done
+
+  # ─── フッター（後タスクで実装、ここでは省略）
+  echo -e "──────────────────────────────────────────────────"
+  echo -e "${CYAN}Ctrl+C で終了${RESET}"
 }
 
 # ════════════════════════════════════════════════════════════

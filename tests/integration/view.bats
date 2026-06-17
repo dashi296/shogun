@@ -67,3 +67,47 @@ _idle_flag_path() {
   [ "$status" -eq 0 ]
   [[ "$output" =~ inbox:[0-9] ]]
 }
+
+@test "view render: no task file shows taskless message" {
+  # 全エージェントのタスクファイルが存在しない状態（init 直後の状態）
+  rm -f "${TEST_PROJECT}/.shogun/queue/tasks/"*.yaml
+
+  _run_view_render
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"（タスクなし）"* ]]
+}
+
+@test "view render: task description is shown" {
+  # karo にタスクを書き込む
+  cat > "${TEST_PROJECT}/.shogun/queue/tasks/karo.yaml" <<'YAML'
+task:
+  task_id: task_001
+  description: "APIサーバーを実装する"
+  status: in_progress
+YAML
+
+  _run_view_render
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"APIサーバーを実装する"* ]]
+}
+
+@test "view render: done task shows done mark" {
+  cat > "${TEST_PROJECT}/.shogun/queue/tasks/karo.yaml" <<'YAML'
+task:
+  task_id: task_001
+  description: "テストを書く"
+  status: done
+YAML
+
+  _run_view_render
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"done ✓"* ]]
+}
+
+@test "view render: missing queue.db shows inbox:0" {
+  rm -f "${TEST_PROJECT}/.shogun/queue/queue.db"
+
+  _run_view_render
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ inbox:0 ]]
+}

@@ -1065,8 +1065,35 @@ _view_render() {
     printf "${BOLD}%-9s${RESET} ${state_color}● %-4s${RESET}  inbox:%s\n" \
       "$agent" "$state_label" "$inbox_count"
 
-    # タスク名（後タスクで実装、ここでは「（タスクなし）」固定）
-    echo "  ↳ （タスクなし）"
+    # タスク名
+    local task_file="${SHOGUN_ROOT}/.shogun/queue/tasks/${agent}.yaml"
+    local task_desc="（タスクなし）"
+    if [[ -f "$task_file" ]]; then
+      task_desc=$(node_yaml -e '
+const yaml = require("js-yaml");
+const d = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
+let desc = "";
+let isDone = false;
+if (Array.isArray(d.tasks)) {
+  const inProgress = d.tasks.find(t => t && t.status === "in_progress");
+  const done = d.tasks.find(t => t && t.status === "done");
+  const t = inProgress || done || d.tasks[0];
+  if (t) {
+    desc = (t.description || "").slice(0, 80);
+    isDone = t.status === "done";
+  }
+} else if (d.task) {
+  desc = (d.task.description || "").slice(0, 80);
+  isDone = d.task.status === "done";
+}
+if (desc) {
+  process.stdout.write(desc + (isDone ? " [done ✓]" : ""));
+} else {
+  process.stdout.write("（タスクなし）");
+}
+' -- "$task_file" 2>/dev/null || echo "（タスクなし）")
+    fi
+    echo "  ↳ ${task_desc}"
     echo ""
   done
 

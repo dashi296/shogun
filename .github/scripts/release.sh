@@ -15,16 +15,16 @@ set -- "${POSITIONAL[@]}"
 VERSION="${1:?使い方: $0 [--dry-run] <version> (例: 0.0.2)}"
 TAG="v${VERSION}"
 
-# semver バリデーション
-[[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-  echo "ERROR: 不正なバージョン形式: ${VERSION}（例: 0.0.2）" >&2
+# semver バリデーション（pre-release サフィックス例: 0.0.19-beta.1 も許可）
+[[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]] || {
+  echo "ERROR: 不正なバージョン形式: ${VERSION}（例: 0.0.2 または 0.0.19-beta.1）" >&2
   exit 1
 }
 
-# main ブランチにいることを確認
+# ブランチチェック: stable は main 必須、pre-release は任意ブランチ可
 current_branch="$(git rev-parse --abbrev-ref HEAD)"
-if [[ "${current_branch}" != "main" ]]; then
-  echo "ERROR: main ブランチにいません（現在: ${current_branch}）" >&2
+if [[ ! "${VERSION}" =~ - ]] && [[ "${current_branch}" != "main" ]]; then
+  echo "ERROR: stable リリースは main ブランチから行ってください（現在: ${current_branch}）" >&2
   exit 1
 fi
 
@@ -78,7 +78,7 @@ else
 fi
 
 git tag "${TAG}"
-git push origin main
+git push origin "${current_branch}"
 git push origin "${TAG}"
 
 echo "Released ${TAG}"

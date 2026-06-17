@@ -46,7 +46,7 @@ jobs:
       - name: Embed version into install.sh
         run: |
           version="${GITHUB_REF_NAME}"
-          [[ "${version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+          [[ "${version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]] || {
             echo "ERROR: 不正なバージョン形式: ${version}"
             exit 1
           }
@@ -55,4 +55,5 @@ jobs:
       - uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
         with:
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: install.sh

@@ -34,7 +34,7 @@ _run_view_render() {
   "
 }
 
-# idle フラグのパスを返す（flag_names.sh と同一ロジック）
+# idle フラグのパスを返す（project_id なし時の flag_names.sh と同一ロジック）
 _idle_flag_path() {
   local agent="$1"
   local root_key

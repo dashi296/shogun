@@ -12,7 +12,7 @@ teardown() {
   teardown_test_project
 }
 
-@test "view: init されていないディレクトリで失敗する" {
+@test "view: fails in uninitialized directory" {
   local no_init_dir
   no_init_dir="$(mktemp -d)"
   cd "$no_init_dir"

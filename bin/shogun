@@ -1001,6 +1001,178 @@ cmd_reset() {
 }
 
 # ════════════════════════════════════════════════════════════
+# shogun view の描画関数（テストから直接呼び出し可能）
+# ════════════════════════════════════════════════════════════
+_view_render() {
+  local config_file="${SHOGUN_ROOT}/.shogun/config.yaml"
+  local project_name
+  project_name="$(read_project_name "$config_file")"
+
+  local session_taisho session_multi
+  read -r session_taisho session_multi <<< "$(project_session_names "$project_name" "$SHOGUN_ROOT")" || true
+
+  local now
+  now="$(date '+%H:%M:%S')"
+
+  # ─── ヘッダー
+  echo -e "${BOLD}${MAGENTA}╔══════════════════════════════════════════════════╗${RESET}"
+  echo -e "${BOLD}${MAGENTA}  ⛩  Shogun View: ${project_name}       更新: ${now}${RESET}"
+  echo -e "${BOLD}${MAGENTA}╚══════════════════════════════════════════════════╝${RESET}"
+  echo ""
+
+  # ─── コマンドキュー
+  echo -e "${BOLD}[ コマンドキュー ]${RESET}"
+  local queue_file="${SHOGUN_ROOT}/.shogun/queue/shogun_to_karo.yaml"
+  if [[ -f "$queue_file" ]]; then
+    node_yaml -e '
+const yaml = require("js-yaml");
+const data = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {commands: []};
+const cmds = data.commands || [];
+const max = 5;
+const shown = cmds.slice(0, max);
+if (shown.length === 0) {
+  console.log("  （なし）");
+} else {
+  shown.forEach(c => {
+    const id    = String(c.id || "?");
+    const status = c.status || "unknown";
+    const cmd60  = (c.command || "").slice(0, 60);
+    const color  = status === "done" ? "\x1b[32m" : "\x1b[33m";
+    console.log("  " + id + " " + color + "[" + status + "]\x1b[0m " + cmd60);
+  });
+  if (cmds.length > max) {
+    console.log("  ... 他" + (cmds.length - max) + "件");
+  }
+}
+' -- "$queue_file" 2>/dev/null || echo "  （読み取り失敗）"
+  else
+    echo "  （なし）"
+  fi
+  echo ""
+
+  # ─── エージェント一覧
+  echo -e "${BOLD}[ エージェント ]${RESET}"
+
+  local ashigaru_count
+  ashigaru_count="$(read_ashigaru_count "$config_file")"
+
+  local agents
+  read -ra agents <<< "$(ashigaru_agents "$ashigaru_count")"
+
+  # shellcheck source=scripts/flag_names.sh
+  source "${SHOGUN_BIN_DIR}/scripts/flag_names.sh"
+
+  local project_id="${SHOGUN_PROJECT_ID:-}"
+
+  # エージェントごとに node を 2 回起動（inbox + task）するため render あたり N×2 node スポーンが発生する
+  for agent in "${agents[@]}"; do
+    # busy/idle 判定
+    local flag
+    flag="$(shogun_idle_flag "$agent" "$project_id")"
+    local state_label state_color
+    if [[ -f "$flag" ]]; then
+      state_label="idle"
+      state_color="${GREEN}"
+    else
+      state_label="BUSY"
+      state_color="${YELLOW}"
+    fi
+
+    # inbox 未読数
+    local inbox_count=0
+    if [[ -n "${SHOGUN_BIN_DIR:-}" ]]; then
+      inbox_count=$(node "${SHOGUN_BIN_DIR}/packages/mcp-queue/cli.js" \
+        inbox_unread_count \
+        "--root=${SHOGUN_ROOT}" \
+        "--role=${agent}" \
+        ${project_id:+"--project-id=${project_id}"} 2>/dev/null || echo 0)
+    fi
+
+    printf "${BOLD}%-9s${RESET} ${state_color}● %-4s${RESET}  inbox:%s\n" \
+      "$agent" "$state_label" "$inbox_count"
+
+    # タスク名
+    local task_file="${SHOGUN_ROOT}/.shogun/queue/tasks/${agent}.yaml"
+    local task_desc="（タスクなし）"
+    if [[ -f "$task_file" ]]; then
+      task_desc=$(node_yaml -e '
+const yaml = require("js-yaml");
+const d = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
+let desc = "";
+let isDone = false;
+if (Array.isArray(d.tasks)) {
+  const inProgress = d.tasks.find(t => t && t.status === "in_progress");
+  const done = d.tasks.find(t => t && t.status === "done");
+  const t = inProgress || done || d.tasks[0];
+  if (t) {
+    desc = (t.description || "").slice(0, 80);
+    isDone = t.status === "done";
+  }
+} else if (d.task) {
+  desc = (d.task.description || "").slice(0, 80);
+  isDone = d.task.status === "done";
+}
+if (desc) {
+  process.stdout.write(desc + (isDone ? " [done ✓]" : ""));
+} else {
+  process.stdout.write("（タスクなし）");
+}
+' -- "$task_file" 2>/dev/null || echo "（タスクなし）")
+    fi
+    echo "  ↳ ${task_desc}"
+    echo ""
+  done
+
+  # ─── フッター
+  echo -e "──────────────────────────────────────────────────"
+  local taisho_status multi_status
+  if tmux has-session -t "$(tmux_exact_target "$session_taisho")" 2>/dev/null; then
+    taisho_status="${GREEN}●${RESET} ${session_taisho}"
+  else
+    taisho_status="${RED}○${RESET} ${session_taisho} (停止)"
+  fi
+  if tmux has-session -t "$(tmux_exact_target "$session_multi")" 2>/dev/null; then
+    multi_status="${GREEN}●${RESET} ${session_multi}"
+  else
+    multi_status="${RED}○${RESET} ${session_multi} (停止)"
+  fi
+  echo -e "tmux: ${taisho_status}  ${multi_status}"
+  echo -e "${CYAN}Ctrl+C で終了${RESET}"
+}
+
+# ════════════════════════════════════════════════════════════
+# shogun view
+# ════════════════════════════════════════════════════════════
+cmd_view() {
+  require_init
+
+  # tput smcup（代替スクリーン）の対応確認と切り替え
+  # 対応していれば smcup が既に実行されているので tput cup 0 0 で先頭へ戻す
+  # 非対応環境（TERM=dumb など）では clear で fallback
+  local use_altscreen=true
+  if ! tput smcup 2>/dev/null; then
+    use_altscreen=false
+  fi
+
+  if [[ "$use_altscreen" == "true" ]]; then
+    trap 'tput rmcup; exit 0' INT TERM
+  else
+    trap 'exit 0' INT TERM
+  fi
+
+  while true; do
+    if [[ "$use_altscreen" == "true" ]]; then
+      tput cup 0 0
+      tput ed 2>/dev/null || true
+    else
+      clear
+    fi
+    _view_render
+    sleep 2
+  done
+}
+
+# ════════════════════════════════════════════════════════════
 # shogun status
 # ════════════════════════════════════════════════════════════
 cmd_status() {
@@ -1423,6 +1595,7 @@ cmd_help() {
   echo -e "  ${CYAN}reset${RESET} [-y|--yes]               エージェントを強制停止してキューを初期化"
   echo -e "  ${CYAN}task${RESET} \"<説明>\" [--priority P]  新規タスクを投入"
   echo -e "  ${CYAN}status${RESET}                       現在の状態を表示"
+  echo -e "  ${CYAN}view${RESET}                         エージェント状態をライブ表示（Ctrl+C で終了）"
   echo -e "  ${CYAN}logs${RESET} [--agent <名前>]         ログを表示"
   echo -e "       [--tail N]              最新 N 行を表示 (デフォルト: 50)"
   echo -e "  ${CYAN}doctor${RESET}                       依存ツールの確認"
@@ -1454,6 +1627,7 @@ case "$COMMAND" in
   stop|kijin)        cmd_stop "$@" ;;
   reset)             cmd_reset "$@" ;;
   status)  cmd_status "$@" ;;
+  view)    cmd_view "$@" ;;
   logs)    cmd_logs "$@" ;;
   doctor)  cmd_doctor "$@" ;;
   upgrade) cmd_upgrade "$@" ;;

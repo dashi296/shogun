@@ -3,5 +3,12 @@ node_modules/
 !templates/.claude/
 !templates/.claude/**
 .shogun/
-docs/
+docs/*
+!docs/superpowers/
+!docs/superpowers/**
 .mcp.json
+.superpowers/
+
+# --- Shogun ---
+# Shogun: .shogun/ は shogun init で生成・更新されるため、まるごと Git 管理対象外にする
+.shogun/

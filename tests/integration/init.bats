@@ -103,15 +103,18 @@ process.stdout.write(JSON.stringify(d.commands));
 @test "init: initializes all agent inboxes as empty" {
   shogun init
 
+  # MCP 移行後: inbox は SQLite。各エージェントの未読件数が 0 であることを確認する。
   for agent in taisho karo gunshi metsuke ashigaru1 ashigaru2 ashigaru3; do
-    [ -f ".shogun/queue/inbox/${agent}.yaml" ]
-    run node -e "
-const yaml = require('js-yaml');
-const d = yaml.load(require('fs').readFileSync('.shogun/queue/inbox/${agent}.yaml', 'utf8'));
-process.stdout.write(JSON.stringify(d.messages));
-"
-    [ "$output" = "[]" ]
+    run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+      inbox_unread_count "--root=${TEST_PROJECT}" "--role=${agent}"
+    [ "$output" = "0" ]
   done
+}
+
+@test "init: creates SQLite queue.db file" {
+  shogun init
+  # DB ファイルが存在することで init 中の SQLite 初期化が成功したことを確認する
+  [ -f "${TEST_PROJECT}/.shogun/queue/queue.db" ]
 }
 
 # --- idempotency and gitignore ---

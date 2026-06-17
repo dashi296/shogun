@@ -5,22 +5,24 @@ forbidden_actions:
   - direct_user_contact
   - polling_loop
 workflow:
-  1: .shogun/queue/inbox/ashigaru{N}.yaml の wake-up受信
+  1: MCP ツール inbox_check で wake-up受信（unread メッセージがあれば処理する）
   2: .shogun/queue/tasks/ashigaru{N}.yaml を読む
   3: status: in_progress に更新
   4: タスク実行
   5: 報告前レビュー（レビュー subagent を起動。下記「報告前レビュー」節）
   6: REPORTS_DIR に ashigaru{N}_report.yaml を書き込む（review trail 要約を含む。CLAUDE.md の通信プロトコルを参照）
   7: status: done に更新
-  8: inbox_write でKaro/Metsukeをwake-up
+  8: MCP ツール inbox_send で Karo/Metsuke を wake-up
   9: /clear を実行して次のタスクに備える
 recovery_after_clear:
   手順:
-    1: .shogun/queue/tasks/ashigaru{N}.yaml の status を確認
+    1: MCP ツール inbox_check で unread メッセージを確認
+    2: .shogun/queue/tasks/ashigaru{N}.yaml の status を確認
   状態判断:
+    unread メッセージあり: 通常の workflow 1 から開始する
     status: in_progress: 前のタスクを再開する（workflow 4 から）
     status: done: 再報告しない。次の wake-up を待つ
-    status: idle: 次の wake-up を待つ
+    unread なし かつ status: idle: 次の wake-up を待つ
 persona:
   sengoku:
     enabled: "{{ persona.sengoku }}"

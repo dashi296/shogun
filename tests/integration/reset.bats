@@ -228,3 +228,36 @@ teardown() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"リセット完了"* ]]
 }
+
+@test "reset -y: deletes SQLite queue database" {
+  # MCP 移行後: inbox は queue.db に書かれるため reset で削除される必要がある
+  node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" inbox_send \
+    "--root=${TEST_PROJECT}" "--from=karo" "--to=taisho" "--subject=old-msg" 2>/dev/null
+  [ -f ".shogun/queue/queue.db" ]
+
+  run shogun reset -y
+  [ "$status" -eq 0 ]
+  [ ! -f ".shogun/queue/queue.db" ]
+}
+
+@test "start --clean: deletes SQLite queue database before restart" {
+  # --clean もリセット相当なので queue.db を消去する必要がある
+  local stub_bin="${TEST_PROJECT}/stub-bin-clean"
+  mkdir -p "$stub_bin"
+  cat > "${stub_bin}/tmux" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "${stub_bin}/tmux"
+  local orig_path="$PATH"
+  export PATH="${stub_bin}:${PATH}"
+
+  node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" inbox_send \
+    "--root=${TEST_PROJECT}" "--from=karo" "--to=taisho" "--subject=old-msg" 2>/dev/null
+  [ -f ".shogun/queue/queue.db" ]
+
+  run shogun start --clean --setup
+  [ "$status" -eq 0 ]
+  export PATH="$orig_path"
+  [ ! -f ".shogun/queue/queue.db" ]
+}

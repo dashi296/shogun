@@ -6,19 +6,15 @@ description: "現在のエージェントの状態（inbox 未読・タスク状
 
 ```bash
 echo "=== SHOGUN_ROLE ===" && echo "${SHOGUN_ROLE:-（未設定）}"
-echo "=== inbox 未読 ===" && node -e "
-const yaml = require('js-yaml');
-const fs = require('fs');
-const role = process.env.SHOGUN_ROLE;
-const root = process.env.SHOGUN_ROOT;
-if (!role || !root) { console.log('SHOGUN_ROLE または SHOGUN_ROOT が未設定'); process.exit(0); }
-const file = \`\${root}/.shogun/queue/inbox/\${role}.yaml\`;
-if (!fs.existsSync(file)) { console.log('(inbox なし)'); process.exit(0); }
-const data = yaml.load(fs.readFileSync(file, 'utf8')) || {};
-const unread = (data.messages || []).filter(m => m.status === 'unread');
-console.log(\`未読: \${unread.length} 件\`);
-unread.forEach(m => console.log(\`  - [\${m.id}] \${m.subject}\`));
-"
+echo "=== inbox 未読 ===" && {
+  if [ -z "${SHOGUN_ROLE:-}" ] || [ -z "${SHOGUN_ROOT:-}" ] || [ -z "${SHOGUN_BIN_DIR:-}" ]; then
+    echo "SHOGUN_ROLE / SHOGUN_ROOT / SHOGUN_BIN_DIR が未設定"
+  else
+    node "${SHOGUN_BIN_DIR}/packages/mcp-queue/cli.js" inbox_list \
+      "--root=${SHOGUN_ROOT}" "--role=${SHOGUN_ROLE}" \
+      ${SHOGUN_PROJECT_ID:+"--project-id=${SHOGUN_PROJECT_ID}"}
+  fi
+}
 echo "=== タスク状況 ===" && node -e "
 const yaml = require('js-yaml');
 const fs = require('fs');

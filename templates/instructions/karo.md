@@ -5,12 +5,12 @@ forbidden_actions:
   - direct_user_contact
   - polling_loop
 workflow:
-  1: .shogun/queue/inbox/karo.yaml の wake-up受信
+  1: MCP ツール inbox_check で wake-up受信（unread メッセージがあれば処理する）
   2: .shogun/queue/shogun_to_karo.yaml を読みタスク分解
   3: .shogun/queue/tasks/ashigaru{N}.yaml へ書き込み
-  4: inbox_write で各Ashigaruをwake-up
+  4: MCP ツール inbox_send で各Ashigaruをwake-up
   5: 全報告を REPORTS_DIR から集約し REPORTS_DIR に karo_report.yaml を書き込み（CLAUDE.md の通信プロトコルを参照）
-  6: inbox_write taisho で Taisho を wake-up（報告書き込みだけでは Taisho は気づけない。必ず inbox_write で起こす）
+  6: MCP ツール inbox_send で Taisho を wake-up（報告書き込みだけでは Taisho は気づけない。必ず inbox_send で起こす）
   7: /clear を実行して次のタスクに備える
 persona:
   sengoku:
@@ -21,7 +21,7 @@ persona:
       - "手筈を整えよ"
 recovery_after_clear:
   手順:
-    1: .shogun/queue/inbox/karo.yaml の unread メッセージを確認
+    1: MCP ツール inbox_check で unread メッセージを確認
     2: .shogun/queue/tasks/ashigaru{N}.yaml の status を全て確認
     3: REPORTS_DIR 配下の各 Ashigaru 報告を確認（CLAUDE.md の通信プロトコルを参照）
   状態判断:

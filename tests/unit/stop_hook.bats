@@ -8,6 +8,7 @@ setup() {
   _SCRIPT_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../../scripts" && pwd)"
   TMP_ROOT="$(mktemp -d)"
   export SHOGUN_ROOT="$TMP_ROOT"
+  export SHOGUN_BIN_DIR="${SHOGUN_REPO}"
   # フラグ命名を被テストスクリプトと共有するため flag_names.sh を source する。
   source "${SHOGUN_REPO}/scripts/flag_names.sh"
   # テスト固有の role 名を使い、/tmp のフラグ衝突を避ける
@@ -18,6 +19,13 @@ setup() {
   PENDING="$(shogun_reports_pending_flag "$ROLE" "")"
   PENDING_PROJ="$(shogun_reports_pending_flag "$ROLE" "$PROJ")"
   rm -f "$IDLE" "$IDLE_PROJ" "$PENDING" "$PENDING_PROJ"
+}
+
+# SQLite DB にメッセージを挿入するヘルパー
+_send_msg() {
+  local root="$1" to="$2" subject="${3:-test-unread}"
+  node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" inbox_send \
+    "--root=${root}" "--from=karo" "--to=${to}" "--subject=${subject}" 2>/dev/null
 }
 
 teardown() {
@@ -65,12 +73,7 @@ teardown() {
 }
 
 @test "stop_hook: prints a message when the inbox has unread messages" {
-  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/inbox"
-  cat > "${SHOGUN_ROOT}/.shogun/queue/inbox/${ROLE}.yaml" <<'YAML'
-messages:
-  - status: unread
-    subject: test-unread
-YAML
+  _send_msg "$SHOGUN_ROOT" "$ROLE"
   SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh"
   [ "$status" -eq 0 ]
   # 未読があれば通知メッセージが stdout に出る（出力が非空であることで検証）
@@ -79,12 +82,7 @@ YAML
 }
 
 @test "stop_hook: prints nothing when the inbox has no unread messages" {
-  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/inbox"
-  cat > "${SHOGUN_ROOT}/.shogun/queue/inbox/${ROLE}.yaml" <<'YAML'
-messages:
-  - status: read
-    subject: already-read
-YAML
+  # DB にメッセージを挿入しない = 未読 0
   SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
@@ -132,12 +130,7 @@ YAML
 # ────────────────────────────────────────────────────────────
 
 @test "stop_hook: outputs decision block JSON when inbox has unread and stop_hook_active is false" {
-  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/inbox"
-  cat > "${SHOGUN_ROOT}/.shogun/queue/inbox/${ROLE}.yaml" <<'YAML'
-messages:
-  - status: unread
-    subject: test-unread
-YAML
+  _send_msg "$SHOGUN_ROOT" "$ROLE"
   SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
   [ "$status" -eq 0 ]
   [[ "$output" == *'"decision":"block"'* ]]
@@ -145,12 +138,7 @@ YAML
 }
 
 @test "stop_hook: does not block when stop_hook_active is true" {
-  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/inbox"
-  cat > "${SHOGUN_ROOT}/.shogun/queue/inbox/${ROLE}.yaml" <<'YAML'
-messages:
-  - status: unread
-    subject: test-unread
-YAML
+  _send_msg "$SHOGUN_ROOT" "$ROLE"
   SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":true}'
   [ "$status" -eq 0 ]
   [[ "$output" != *'"decision"'* ]]
@@ -158,12 +146,7 @@ YAML
 }
 
 @test "stop_hook: does not block when inbox has no unread (stop_hook_active false)" {
-  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/inbox"
-  cat > "${SHOGUN_ROOT}/.shogun/queue/inbox/${ROLE}.yaml" <<'YAML'
-messages:
-  - status: read
-    subject: already-read
-YAML
+  # メッセージを挿入しない = 未読 0
   SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
   [ "$status" -eq 0 ]
   [[ "$output" != *'"decision"'* ]]
@@ -173,12 +156,7 @@ YAML
   # reports 再通知（plain text）と block JSON が同時に発生するケース。
   # stdout が混在すると Claude Code が block を解釈できないため、JSON 単独であることを検証する。
   touch "$PENDING"
-  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/inbox"
-  cat > "${SHOGUN_ROOT}/.shogun/queue/inbox/${ROLE}.yaml" <<'YAML'
-messages:
-  - status: unread
-    subject: test-unread
-YAML
+  _send_msg "$SHOGUN_ROOT" "$ROLE"
   SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
   [ "$status" -eq 0 ]
   # stdout 全体が単一の有効な JSON であること（plain text 混在なら parse 失敗）
@@ -398,12 +376,7 @@ YAML
 task:
   status: done
 YAML
-  mkdir -p "${SHOGUN_ROOT}/.shogun/queue/inbox"
-  cat > "${SHOGUN_ROOT}/.shogun/queue/inbox/${ROLE}.yaml" <<'YAML'
-messages:
-  - status: unread
-    subject: test-unread
-YAML
+  _send_msg "$SHOGUN_ROOT" "$ROLE"
   SHOGUN_ROLE="$ROLE" run bash "${_SCRIPT_DIR}/stop_hook.sh" <<< '{"stop_hook_active":false}'
   [ "$status" -eq 0 ]
   # stdout が単一の有効な JSON であること

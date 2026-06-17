@@ -235,3 +235,114 @@ fs.writeFileSync(cfg, yaml.dump(d, {allowUnicode: true}));
   run cat ".shogun/queue/reviews/ashigaru1_review.yaml"
   [ "$output" = "reviews: []" ]
 }
+
+# ── MCP サーバ起動・設定ファイル生成のテスト ──
+
+@test "start: creates MCP config JSON for taisho" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+  [ -f ".shogun/mcp/taisho.json" ]
+}
+
+@test "start: taisho MCP config contains allowed-sources=karo" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+  run node -e "
+const d = JSON.parse(require('fs').readFileSync('.shogun/mcp/taisho.json', 'utf8'));
+const args = Object.values(d.mcpServers)[0].args.join(' ');
+process.stdout.write(args);
+"
+  [[ "$output" == *"--allowed-sources=karo"* ]]
+}
+
+@test "start: creates MCP config JSON for each role" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+  for role in karo gunshi metsuke ashigaru1; do
+    [ -f ".shogun/mcp/${role}.json" ]
+  done
+}
+
+@test "start: karo MCP config has correct allowed-sources (subordinates)" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+  run node -e "
+const d = JSON.parse(require('fs').readFileSync('.shogun/mcp/karo.json', 'utf8'));
+const args = Object.values(d.mcpServers)[0].args.join(' ');
+process.stdout.write(args);
+"
+  # karo は gunshi, metsuke, ashigaru{N} を受け取る allowlist を持つ
+  [[ "$output" == *"--allowed-sources="* ]]
+  [[ "$output" == *"gunshi"* ]]
+  [[ "$output" == *"metsuke"* ]]
+}
+
+@test "start: worker roles have MCP config with correct server name" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+  for role in gunshi metsuke ashigaru1; do
+    run node -e "
+const d = JSON.parse(require('fs').readFileSync('.shogun/mcp/${role}.json', 'utf8'));
+process.stdout.write(Object.keys(d.mcpServers)[0]);
+"
+    [ "$output" = "shogun-mcp-queue-${role}" ]
+  done
+}
+
+@test "start: passes SHOGUN_BIN_DIR to taisho watcher" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+  run grep "inbox_watcher.sh taisho " "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"SHOGUN_BIN_DIR="* ]]
+}
+
+@test "start: passes SHOGUN_BIN_DIR to worker watchers" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+  run grep "inbox_watcher.sh karo " "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"SHOGUN_BIN_DIR="* ]]
+  run grep "inbox_watcher.sh ashigaru1 " "$TMUX_LOG"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"SHOGUN_BIN_DIR="* ]]
+}
+
+@test "start: MCP config JSON files exist before watcher is launched" {
+  # MCP JSON は claude/watcher を起動する前（--setup でも）に生成されなければならない。
+  # tmux stub がコマンドを記録するので、JSON ファイルが存在するタイミングを検証できる。
+  local stub_bin="${TEST_PROJECT}/stub-bin2"
+  mkdir -p "$stub_bin"
+  local log="${TEST_PROJECT}/order.log"
+  : > "$log"
+  # tmux stub: send-keys でコマンドが来たとき、その時点で JSON が存在するか記録する
+  cat > "${stub_bin}/tmux" <<STUB
+#!/usr/bin/env bash
+if [[ "\$*" == *"inbox_watcher"* ]]; then
+  if [ -f "${TEST_PROJECT}/.shogun/mcp/taisho.json" ]; then
+    echo "json_exists_before_watcher" >> "${log}"
+  else
+    echo "json_missing_before_watcher" >> "${log}"
+  fi
+fi
+printf '%s\n' "\$*" >> "${TEST_PROJECT}/tmux2.log"
+exit 0
+STUB
+  chmod +x "${stub_bin}/tmux"
+  export PATH="${stub_bin}:${PATH}"
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+  # ログに "json_missing_before_watcher" が一件もないこと
+  run grep "json_missing_before_watcher" "$log" || true
+  [ -z "$output" ]
+  # "json_exists_before_watcher" が少なくとも1件あること（watcher が呼ばれた証拠）
+  run grep -c "json_exists_before_watcher" "$log"
+  [ "$output" -ge 1 ]
+}

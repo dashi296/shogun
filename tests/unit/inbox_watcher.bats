@@ -155,156 +155,56 @@ setup() {
 }
 
 # ────────────────────────────────────────────────────────────
-# wake_up_inbox / wake_up_reports: busy 中は送らない（idle ゲート）
+# wake_pane: idle エージェントへの非空 wake-up プロンプト送出
 #
-# Claude が作業中（busy = idle フラグ無し）のときに send-keys を撃つと、
-# ヒアドキュメント実行中・描画中のペインへ注入され出力が破損する。
-# idle（Stop フックが立てたフラグ有り）のときだけ通知する。
+# Claude Code TUI は空文字列+Enter を新ターンとして処理しないため、
+# wake_pane は notify_pane 経由で inbox_check を促す非空プロンプトを送出する。
+# 空送信のまま放置すると shogun task / inbox_send 後にエージェントが起きない。
 # ────────────────────────────────────────────────────────────
 
-@test "wake_up_inbox: does NOT send when the agent is busy" {
-  local tmp; tmp="$(mktemp -d)"
-  AGENT_ID="wakegatetest_$$"
-  PANE="testpane"
-  ROOT="$tmp"
-  INBOX="${tmp}/inbox.yaml"
-  SHOGUN_PROJECT_ID=""
-  cat > "$INBOX" <<'YAML'
-messages:
-  - status: unread
-    subject: hi
-YAML
-  rm -f "$(shogun_idle_flag "$AGENT_ID" "")"   # busy
-
+@test "wake_pane: sends non-empty prompt to idle agent (empty Enter does not start a turn)" {
   local log; log="$(mktemp)"
   tmux() { printf '%s\n' "$*" >> "$log"; }
   sleep() { :; }
 
-  wake_up_inbox
+  AGENT_ID="karo"
+  SHOGUN_PROJECT_ID=""
+  SHOGUN_ROOT="/tmp/test_wakepane_$$"
+  local flag; flag="$(shogun_idle_flag "$AGENT_ID" "")"
+  touch "$flag"
 
-  run cat "$log"
-  rm -rf "$tmp"; rm -f "$log"
-  # busy のため tmux は一切呼ばれない
-  [ -z "$output" ]
+  wake_pane "testpane"
+
+  local first_line last_line
+  first_line="$(head -1 "$log" 2>/dev/null || true)"
+  last_line="$(tail -1 "$log" 2>/dev/null || true)"
+  rm -f "$flag" "$log"
+
+  # 本文が空でないこと（旧実装の空文字では Claude Code が新ターンを開始しない）
+  [[ "$first_line" != "send-keys -t testpane" ]]
+  [[ "$first_line" != "send-keys -t testpane " ]]
+  # inbox への言及がある wake メッセージであること
+  [[ "$first_line" == *"inbox"* ]]
+  # 最後に Enter で送信が確定すること
+  [ "$last_line" = "send-keys -t testpane Enter" ]
 }
 
-@test "wake_up_inbox: sends when the agent is idle and there is unread" {
-  local tmp; tmp="$(mktemp -d)"
-  AGENT_ID="wakegatetest_$$"
-  PANE="testpane"
-  ROOT="$tmp"
-  INBOX="${tmp}/inbox.yaml"
-  SHOGUN_PROJECT_ID=""
-  cat > "$INBOX" <<'YAML'
-messages:
-  - status: unread
-    subject: hi
-YAML
-  touch "$(shogun_idle_flag "$AGENT_ID" "")"   # idle
-
+@test "wake_pane: does not send-keys when agent is busy" {
   local log; log="$(mktemp)"
   tmux() { printf '%s\n' "$*" >> "$log"; }
   sleep() { :; }
 
-  wake_up_inbox
+  AGENT_ID="karo"
+  SHOGUN_PROJECT_ID=""
+  SHOGUN_ROOT="/tmp/test_wakepane_$$"
+  local flag; flag="$(shogun_idle_flag "$AGENT_ID" "")"
+  rm -f "$flag"  # フラグ不在 = busy
+
+  wake_pane "testpane"
 
   run cat "$log"
-  rm -rf "$tmp"; rm -f "$log" "$(shogun_idle_flag "$AGENT_ID" "")"
-  # idle なので通知が送られる（tmux が呼ばれる）
-  [ -n "$output" ]
-}
-
-@test "wake_up_reports: does NOT send when the agent is busy" {
-  AGENT_ID="wakegatetest_$$"
-  PANE="testpane"
-  SHOGUN_PROJECT_ID=""
-  rm -f "$(shogun_idle_flag "$AGENT_ID" "")" "$(shogun_reports_pending_flag "$AGENT_ID" "")"   # busy
-
-  local log; log="$(mktemp)"
-  tmux() { printf '%s\n' "$*" >> "$log"; }
-  sleep() { :; }
-
-  wake_up_reports
-
-  run cat "$log"
-  rm -f "$log" "$(shogun_reports_pending_flag "$AGENT_ID" "")"
-  [ -z "$output" ]
-}
-
-# busy 中にスキップした report 通知は pending マーカーへ記録し、Stop フックが
-# idle 復帰時に再通知できるようにする（次の更新イベントが来なくても取りこぼさない）。
-@test "wake_up_reports: marks pending when the agent is busy" {
-  AGENT_ID="wakegatetest_$$"
-  PANE="testpane"
-  SHOGUN_PROJECT_ID=""
-  rm -f "$(shogun_idle_flag "$AGENT_ID" "")" "$(shogun_reports_pending_flag "$AGENT_ID" "")"   # busy
-
-  tmux() { :; }
-  sleep() { :; }
-
-  wake_up_reports
-
-  local exists=1
-  [ -f "$(shogun_reports_pending_flag "$AGENT_ID" "")" ] && exists=0
-  rm -f "$(shogun_reports_pending_flag "$AGENT_ID" "")"
-  [ "$exists" -eq 0 ]
-}
-
-@test "wake_up_reports: uses a project-specific pending marker when project_id is set" {
-  AGENT_ID="wakegatetest_$$"
-  PANE="testpane"
-  SHOGUN_PROJECT_ID="wakeproj_$$"
-  rm -f "$(shogun_idle_flag "$AGENT_ID" "$SHOGUN_PROJECT_ID")" \
-        "$(shogun_reports_pending_flag "$AGENT_ID" "$SHOGUN_PROJECT_ID")"   # busy
-
-  tmux() { :; }
-  sleep() { :; }
-
-  wake_up_reports
-
-  local exists=1
-  [ -f "$(shogun_reports_pending_flag "$AGENT_ID" "$SHOGUN_PROJECT_ID")" ] && exists=0
-  rm -f "$(shogun_reports_pending_flag "$AGENT_ID" "$SHOGUN_PROJECT_ID")"
-  SHOGUN_PROJECT_ID=""
-  [ "$exists" -eq 0 ]
-}
-
-@test "wake_up_reports: sends when the agent is idle" {
-  AGENT_ID="wakegatetest_$$"
-  PANE="testpane"
-  SHOGUN_PROJECT_ID=""
-  touch "$(shogun_idle_flag "$AGENT_ID" "")"   # idle
-
-  local log; log="$(mktemp)"
-  tmux() { printf '%s\n' "$*" >> "$log"; }
-  sleep() { :; }
-
-  wake_up_reports
-
-  run cat "$log"
-  rm -f "$log" "$(shogun_idle_flag "$AGENT_ID" "")"
-  [ -n "$output" ]
-}
-
-# idle 復帰後に直接通知できたときは、残っている pending マーカーを掃除して
-# Stop フックによる二重通知を避ける。
-@test "wake_up_reports: clears a stale pending marker when sending while idle" {
-  AGENT_ID="wakegatetest_$$"
-  PANE="testpane"
-  SHOGUN_PROJECT_ID=""
-  touch "$(shogun_idle_flag "$AGENT_ID" "")"                       # idle
-  touch "$(shogun_reports_pending_flag "$AGENT_ID" "")"            # 以前 busy 中に立った残骸
-
-  tmux() { :; }
-  sleep() { :; }
-
-  wake_up_reports
-
-  local still=1
-  [ -f "$(shogun_reports_pending_flag "$AGENT_ID" "")" ] && still=0
-  rm -f "$(shogun_idle_flag "$AGENT_ID" "")" "$(shogun_reports_pending_flag "$AGENT_ID" "")"
-  # マーカーは消えている（still=1 のまま = ファイル無し）
-  [ "$still" -eq 1 ]
+  rm -f "$log"
+  [ "${#lines[@]}" -eq 0 ]
 }
 
 # ────────────────────────────────────────────────────────────
@@ -506,76 +406,55 @@ YAML
 }
 
 # ────────────────────────────────────────────────────────────
-# trap on EXIT: バックグラウンド子プロセスの kill 確認 (#64 回帰)
+# should_nudge_inbox: 最大未読 message ID 変化によるデバウンス判定
 #
-# main() 末尾の trap が EXIT 時に watch_reports / watch_escalation の
-# 子プロセスを確実に kill することを検証する。
-# main() はブロッキング呼び出し watch_inbox を含むため、別 bash プロセスで起動する。
+# 件数ではなく最大 ID を比較するため、旧メッセージ既読 + 新メッセージ到着が
+# ポーリング間隔内に同時発生しても取りこぼさない（count=1→0→1 の競合回避）。
+# - max_id > 0 かつ last_notified と異なる場合のみ true (0)
+# - max_id == 0 (未読なし) または max_id == last_notified (変化なし) では false (1)
 # ────────────────────────────────────────────────────────────
 
-@test "trap on EXIT kills watch_reports and watch_escalation child processes" {
-  local tmp_dir
-  tmp_dir="$(mktemp -d)"
-
-  local test_script="${tmp_dir}/run_main.sh"
-  cat > "$test_script" << 'SCRIPT'
-set -euo pipefail
-
-# inbox_watcher.sh を source して関数定義を読み込む
-# shellcheck disable=SC1090
-source "${SHOGUN_REPO}/scripts/inbox_watcher.sh"
-
-# 子プロセス起動時に PID をファイルへ書き出してから長時間待機するスタブ
-# Bash 3.2 では $$ がサブシェルでも親PIDを返すため sh -c 'echo $PPID' で自身のPIDを取得する
-# exec で sleep に置き換え、記録する PID 自身を sleep にする。
-# subshell のまま foreground で sleep すると、subshell を kill しても孫の sleep が
-# orphan 化して bats の出力パイプを掴み続け、全テスト通過後も bats が終了できなくなる。
-# 本番の fswatch/inotifywait は親が死ねば SIGPIPE で連鎖終了するため、この exec 置換は
-# 「記録した子プロセスが kill される」という検証意図と等価。
-watch_reports() { sh -c 'echo $PPID' > "${TMP_DIR}/reports_pid"; exec sleep 999; }
-watch_escalation() { sh -c 'echo $PPID' > "${TMP_DIR}/asw_pid"; exec sleep 999; }
-# watch_inbox は実際の本番同様に SIGTERM が来るまでブロックする
-watch_inbox() { exec sleep 999; }
-
-# fswatch / inotifywait のコマンド存在チェックを通過させるスタブ
-fswatch() { :; }
-inotifywait() { :; }
-
-# main が参照するディレクトリ構造を作成
-mkdir -p "${TMP_DIR}/root/.shogun/queue/inbox"
-
-export SHOGUN_ROOT="${TMP_DIR}/root"
-export SHOGUN_REPORT_SOURCES="ashigaru1"
-export SHOGUN_ASW_ENABLED="true"
-
-main "karo" "dummy"
-SCRIPT
-
-  # run_main.sh をバックグラウンドで起動（watch_inbox が SIGTERM まで待機するため）
-  TMP_DIR="$tmp_dir" SHOGUN_REPO="${SHOGUN_REPO}" bash "$test_script" &
-  local main_pid=$!
-
-  # 子プロセスが起動して PID ファイルを書き込む猶予を与える
-  sleep 0.5
-
-  # テスト側から SIGTERM を送って trap を発火させる（本番と同じシナリオ）
-  kill -TERM "$main_pid" 2>/dev/null || true
-  wait "$main_pid" 2>/dev/null || true
-
-  local reports_pid asw_pid
-  reports_pid="$(cat "${tmp_dir}/reports_pid" 2>/dev/null || echo "")"
-  asw_pid="$(cat "${tmp_dir}/asw_pid" 2>/dev/null || echo "")"
-
-  # PID ファイルが存在すること（両子プロセスが起動したこと）を確認
-  [ -n "$reports_pid" ]
-  [ -n "$asw_pid" ]
-
-  # EXIT trap により両子プロセスが kill されていること（kill -0 が失敗）を確認
-  run kill -0 "$reports_pid"
-  [ "$status" -ne 0 ]
-
-  run kill -0 "$asw_pid"
-  [ "$status" -ne 0 ]
-
-  rm -rf "$tmp_dir"
+@test "should_nudge_inbox: returns true for first notification (last_notified=0, max_id=1)" {
+  run should_nudge_inbox 1 0
+  [ "$status" -eq 0 ]
 }
+
+@test "should_nudge_inbox: returns true when new message arrives (higher max_id)" {
+  run should_nudge_inbox 6 5
+  [ "$status" -eq 0 ]
+}
+
+@test "should_nudge_inbox: returns true when new message arrives after old read (race scenario)" {
+  # 旧メッセージ(id=5)既読 + 新メッセージ(id=6)到着がポーリング間隔内に同時発生
+  # count ベースでは 1==1 で通知しないが、max_id ベースでは 6≠5 で通知する
+  run should_nudge_inbox 6 5
+  [ "$status" -eq 0 ]
+}
+
+@test "should_nudge_inbox: returns true when max_id decreases (partial read)" {
+  # エージェントが id=10 のみ既読にし、残り id=8,9 の max_id=9 になった場合も再通知すべき
+  run should_nudge_inbox 9 10
+  [ "$status" -eq 0 ]
+}
+
+@test "should_nudge_inbox: returns false when no unread messages (max_id=0)" {
+  run should_nudge_inbox 0 0
+  [ "$status" -ne 0 ]
+}
+
+@test "should_nudge_inbox: returns false when all messages read (max_id cleared to 0)" {
+  run should_nudge_inbox 0 5
+  [ "$status" -ne 0 ]
+}
+
+@test "should_nudge_inbox: returns false when max_id unchanged (debounce)" {
+  # 同一 max_id での再送を防ぐ — TUI 入力欄汚染防止の核心
+  run should_nudge_inbox 5 5
+  [ "$status" -ne 0 ]
+}
+
+@test "should_nudge_inbox: returns false when max_id unchanged at 1 (debounce)" {
+  run should_nudge_inbox 1 1
+  [ "$status" -ne 0 ]
+}
+

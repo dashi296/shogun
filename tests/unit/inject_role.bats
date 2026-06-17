@@ -20,6 +20,15 @@ teardown() {
   teardown_test_project
 }
 
+# SQLite DB にメッセージを挿入するヘルパー
+_send_msg() {
+  local root="$1" to="$2" subject="${3:-test-unread}" project_id="${4:-}"
+  local args=("${SHOGUN_REPO}/packages/mcp-queue/cli.js" inbox_send
+    "--root=${root}" "--from=karo" "--to=${to}" "--subject=${subject}")
+  [[ -n "$project_id" ]] && args+=("--project-id=${project_id}")
+  node "${args[@]}" 2>/dev/null
+}
+
 # additionalContext を取り出すヘルパー
 _additional_context() {
   node -e '
@@ -95,12 +104,7 @@ if (d.hookSpecificOutput.hookEventName !== "SessionStart") process.exit(1);
 # 載せて初回タスクの取りこぼしを防ぐ（2 回目以降は Stop フックが毎ターン再提示する）。
 
 @test "inject_role: surfaces inbox unread in additionalContext on cold start" {
-  mkdir -p "${TEST_PROJECT}/.shogun/queue/inbox"
-  cat > "${TEST_PROJECT}/.shogun/queue/inbox/taisho.yaml" <<'YAML'
-messages:
-  - status: unread
-    subject: first-task
-YAML
+  _send_msg "$TEST_PROJECT" "taisho" "first-task"
   export SHOGUN_ROLE="taisho"
   run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"startup"}'
   [ "$status" -eq 0 ]
@@ -109,12 +113,7 @@ YAML
 }
 
 @test "inject_role: no inbox notice when there are no unread messages" {
-  mkdir -p "${TEST_PROJECT}/.shogun/queue/inbox"
-  cat > "${TEST_PROJECT}/.shogun/queue/inbox/taisho.yaml" <<'YAML'
-messages:
-  - status: read
-    subject: done
-YAML
+  # メッセージを挿入しない = 未読 0
   export SHOGUN_ROLE="taisho"
   run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"startup"}'
   [ "$status" -eq 0 ]
@@ -124,12 +123,7 @@ YAML
 
 @test "inject_role: surfaces project-specific inbox unread on cold start" {
   local proj="injinboxproj_$$"
-  mkdir -p "${TEST_PROJECT}/.shogun/queue/projects/${proj}/inbox"
-  cat > "${TEST_PROJECT}/.shogun/queue/projects/${proj}/inbox/taisho.yaml" <<'YAML'
-messages:
-  - status: unread
-    subject: first-task
-YAML
+  _send_msg "$TEST_PROJECT" "taisho" "first-task" "$proj"
   export SHOGUN_ROLE="taisho" SHOGUN_PROJECT_ID="$proj"
   run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"startup"}'
   [ "$status" -eq 0 ]
@@ -139,12 +133,7 @@ YAML
 }
 
 @test "inject_role: does NOT surface inbox unread during compact (busy, no interruption)" {
-  mkdir -p "${TEST_PROJECT}/.shogun/queue/inbox"
-  cat > "${TEST_PROJECT}/.shogun/queue/inbox/taisho.yaml" <<'YAML'
-messages:
-  - status: unread
-    subject: mid-work
-YAML
+  _send_msg "$TEST_PROJECT" "taisho" "mid-work"
   export SHOGUN_ROLE="taisho"
   run bash "${SHOGUN_REPO}/scripts/inject_role.sh" <<<'{"source":"compact"}'
   [ "$status" -eq 0 ]

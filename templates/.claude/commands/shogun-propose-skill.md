@@ -17,17 +17,19 @@ description: "繰り返し実施した操作をスキル候補として Karo 経
 
 以下のコマンドを実行してください（`<...>` 部分を実際の内容に置き換えること）:
 
-```bash
-SHOGUN_ROOT="${SHOGUN_ROOT}" SHOGUN_ROLE="${SHOGUN_ROLE}" \
-  bash "${SHOGUN_BIN_DIR}/scripts/inbox_write.sh" karo \
-  "スキル候補提案: /<スキル名>" \
-  "提案者: ${SHOGUN_ROLE}
-スキル名: /<スキル名>
-概要: <このスキルが何をするか 1-2 文で>
-背景: <なぜ繰り返し発生するか・どんな場面で使うか>
-実装案: .claude/commands/<スキル名>.md として登録
-優先度: low/medium/high"
-```
+MCP ツール `inbox_send` を使って以下の内容を Karo へ送信してください:
+
+- **to**: `karo`
+- **subject**: `スキル候補提案: /<スキル名>`
+- **body**:
+  ```
+  提案者: <SHOGUN_ROLE の値>
+  スキル名: /<スキル名>
+  概要: <このスキルが何をするか 1-2 文で>
+  背景: <なぜ繰り返し発生するか・どんな場面で使うか>
+  実装案: .claude/commands/<スキル名>.md として登録
+  優先度: low/medium/high
+  ```
 
 **ステップ 3: 承認を待つ**
 

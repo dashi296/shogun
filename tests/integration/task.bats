@@ -62,11 +62,9 @@ process.stdout.write(d.commands[0].command);
 @test "task: writes notification to taisho inbox" {
   shogun task "build auth feature"
 
-  run node -e "
-const yaml = require('js-yaml');
-const d = yaml.load(require('fs').readFileSync('.shogun/queue/inbox/taisho.yaml', 'utf8'));
-process.stdout.write(String(d.messages.length));
-"
+  # MCP 移行後: inbox は SQLite。cli.js で未読件数が 1 であることを確認する。
+  run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
+    inbox_unread_count "--root=${TEST_PROJECT}" "--role=taisho"
   [ "$output" = "1" ]
 }
 

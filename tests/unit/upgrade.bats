@@ -68,13 +68,13 @@ setup() {
   [[ "$output" == *"不正なバージョン形式"* ]]
 }
 
-@test "upgrade: accepts pre-release version v0.1.0-beta.1" {
-  run shogun upgrade --version v0.1.0-beta.1
+@test "upgrade: accepts pre-release version v99.0.0-beta.1" {
+  run shogun upgrade --version v99.0.0-beta.1
   [[ "$output" != *"不正なバージョン形式"* ]]
 }
 
-@test "upgrade: accepts pre-release version v1.0.0-rc.1" {
-  run shogun upgrade --version v1.0.0-rc.1
+@test "upgrade: accepts pre-release version v99.0.0-rc.1" {
+  run shogun upgrade --version v99.0.0-rc.1
   [[ "$output" != *"不正なバージョン形式"* ]]
 }
 

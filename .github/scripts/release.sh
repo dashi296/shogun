@@ -44,13 +44,6 @@ if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q .; then
   exit 1
 fi
 
-# テスト実行
-echo "テストを実行します..."
-npm run test:unit || {
-  echo "ERROR: テストが失敗しました。リリースを中止します。" >&2
-  exit 1
-}
-
 if [[ "${DRY_RUN}" == "true" ]]; then
   echo "[DRY RUN] リリース内容のプレビュー:"
   echo "  バージョン : ${VERSION}"
@@ -59,6 +52,13 @@ if [[ "${DRY_RUN}" == "true" ]]; then
   echo "[DRY RUN] 実際の変更は行いません。"
   exit 0
 fi
+
+# テスト実行
+echo "テストを実行します..."
+npm run test:unit || {
+  echo "ERROR: テストが失敗しました。リリースを中止します。" >&2
+  exit 1
+}
 
 
 # package.json のバージョンを更新（Node.js を使い macOS/Linux 両対応）

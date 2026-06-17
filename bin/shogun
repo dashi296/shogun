@@ -1020,9 +1020,34 @@ _view_render() {
   echo -e "${BOLD}${MAGENTA}╚══════════════════════════════════════════════════╝${RESET}"
   echo ""
 
-  # ─── コマンドキュー（後タスクで実装、ここでは省略）
+  # ─── コマンドキュー
   echo -e "${BOLD}[ コマンドキュー ]${RESET}"
-  echo "  （準備中）"
+  local queue_file="${SHOGUN_ROOT}/.shogun/queue/shogun_to_karo.yaml"
+  if [[ -f "$queue_file" ]]; then
+    node_yaml -e '
+const yaml = require("js-yaml");
+const data = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {commands: []};
+const cmds = data.commands || [];
+const max = 5;
+const shown = cmds.slice(0, max);
+if (shown.length === 0) {
+  console.log("  （なし）");
+} else {
+  shown.forEach(c => {
+    const id    = String(c.id || "?");
+    const status = c.status || "unknown";
+    const cmd60  = (c.command || "").slice(0, 60);
+    const color  = status === "done" ? "\x1b[32m" : "\x1b[33m";
+    console.log("  " + id + " " + color + "[" + status + "]\x1b[0m " + cmd60);
+  });
+  if (cmds.length > max) {
+    console.log("  ... 他" + (cmds.length - max) + "件");
+  }
+}
+' -- "$queue_file" 2>/dev/null || echo "  （読み取り失敗）"
+  else
+    echo "  （なし）"
+  fi
   echo ""
 
   # ─── エージェント一覧
@@ -1097,8 +1122,20 @@ if (desc) {
     echo ""
   done
 
-  # ─── フッター（後タスクで実装、ここでは省略）
+  # ─── フッター
   echo -e "──────────────────────────────────────────────────"
+  local taisho_status multi_status
+  if tmux has-session -t "$(tmux_exact_target "$session_taisho")" 2>/dev/null; then
+    taisho_status="${GREEN}●${RESET} ${session_taisho}"
+  else
+    taisho_status="${RED}○${RESET} ${session_taisho} (停止)"
+  fi
+  if tmux has-session -t "$(tmux_exact_target "$session_multi")" 2>/dev/null; then
+    multi_status="${GREEN}●${RESET} ${session_multi}"
+  else
+    multi_status="${RED}○${RESET} ${session_multi} (停止)"
+  fi
+  echo -e "tmux: ${taisho_status}  ${multi_status}"
   echo -e "${CYAN}Ctrl+C で終了${RESET}"
 }
 

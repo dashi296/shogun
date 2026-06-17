@@ -111,3 +111,20 @@ YAML
   [ "$status" -eq 0 ]
   [[ "$output" =~ inbox:0 ]]
 }
+
+@test "view render: command queue content is displayed" {
+  shogun task "APIサーバーを実装してください" >/dev/null
+
+  _run_view_render
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"APIサーバーを実装してください"* ]]
+  [[ "$output" == *"pending"* ]]
+}
+
+@test "view render: no error when tmux session is not running" {
+  # tmux sessions are not running in test environment
+  _run_view_render
+  [ "$status" -eq 0 ]
+  # Either stopped mark '○' or running mark '●' should appear with tmux: prefix
+  [[ "$output" == *"tmux:"* ]]
+}

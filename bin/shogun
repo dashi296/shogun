@@ -1059,11 +1059,12 @@ if (shown.length === 0) {
   local agents
   read -ra agents <<< "$(ashigaru_agents "$ashigaru_count")"
 
-  # flag_names.sh の shogun_idle_flag() を利用するために source
+  # shellcheck source=scripts/flag_names.sh
   source "${SHOGUN_BIN_DIR}/scripts/flag_names.sh"
 
   local project_id="${SHOGUN_PROJECT_ID:-}"
 
+  # エージェントごとに node を 2 回起動（inbox + task）するため render あたり N×2 node スポーンが発生する
   for agent in "${agents[@]}"; do
     # busy/idle 判定
     local flag
@@ -1625,8 +1626,8 @@ case "$COMMAND" in
   attach)            cmd_attach "$@" ;;
   stop|kijin)        cmd_stop "$@" ;;
   reset)             cmd_reset "$@" ;;
-  view)    cmd_view "$@" ;;
   status)  cmd_status "$@" ;;
+  view)    cmd_view "$@" ;;
   logs)    cmd_logs "$@" ;;
   doctor)  cmd_doctor "$@" ;;
   upgrade) cmd_upgrade "$@" ;;

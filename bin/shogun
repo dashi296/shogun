@@ -1144,7 +1144,31 @@ if (desc) {
 # ════════════════════════════════════════════════════════════
 cmd_view() {
   require_init
-  _view_render
+
+  # tput smcup（代替スクリーン）の対応確認と切り替え
+  # 対応していれば smcup が既に実行されているので tput cup 0 0 で先頭へ戻す
+  # 非対応環境（TERM=dumb など）では clear で fallback
+  local use_altscreen=true
+  if ! tput smcup 2>/dev/null; then
+    use_altscreen=false
+  fi
+
+  if [[ "$use_altscreen" == "true" ]]; then
+    trap 'tput rmcup; exit 0' INT TERM
+  else
+    trap 'exit 0' INT TERM
+  fi
+
+  while true; do
+    if [[ "$use_altscreen" == "true" ]]; then
+      tput cup 0 0
+      tput ed 2>/dev/null || true
+    else
+      clear
+    fi
+    _view_render
+    sleep 2
+  done
 }
 
 # ════════════════════════════════════════════════════════════
@@ -1570,6 +1594,7 @@ cmd_help() {
   echo -e "  ${CYAN}reset${RESET} [-y|--yes]               エージェントを強制停止してキューを初期化"
   echo -e "  ${CYAN}task${RESET} \"<説明>\" [--priority P]  新規タスクを投入"
   echo -e "  ${CYAN}status${RESET}                       現在の状態を表示"
+  echo -e "  ${CYAN}view${RESET}                         エージェント状態をライブ表示（Ctrl+C で終了）"
   echo -e "  ${CYAN}logs${RESET} [--agent <名前>]         ログを表示"
   echo -e "       [--tail N]              最新 N 行を表示 (デフォルト: 50)"
   echo -e "  ${CYAN}doctor${RESET}                       依存ツールの確認"

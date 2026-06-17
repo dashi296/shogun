@@ -1,6 +1,6 @@
 {
   "name": "shogun-framework",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0",
   "description": "ローカルAIオーケストレーションフレームワーク",
   "private": true,
   "workspaces": [

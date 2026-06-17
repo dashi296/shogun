@@ -23,6 +23,8 @@ RELEASE_SCRIPT="${SHOGUN_REPO}/.github/scripts/release.sh"
 # These tests run on a feature branch, so stable versions trigger the branch check.
 
 @test "release branch: stable version requires main branch" {
+  # main ブランチからの実行時はスキップ（このテストは非 main ブランチ前提）
+  [[ "$(git rev-parse --abbrev-ref HEAD)" != "main" ]] || skip "on main branch"
   run bash "${RELEASE_SCRIPT}" --dry-run 0.0.1
   [ "$status" -ne 0 ]
   [[ "$output" == *"stable リリースは main"* ]]

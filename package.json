@@ -13,6 +13,6 @@
     "test:mcp": "cd packages/mcp-queue && npm test"
   },
   "dependencies": {
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^5.2.0"
   }
 }

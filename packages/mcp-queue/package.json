@@ -9,7 +9,7 @@
     "start": "node src/server.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "better-sqlite3": "^11.10.0"
   }
 }

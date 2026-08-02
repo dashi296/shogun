@@ -1,13 +1,15 @@
 # agmsg 通信基盤への移行設計 — オンデマンド spawn/despawn オーケストレーション
 
-- 日付: 2026-08-02（改訂: Codex レビュー4回目の指摘を反映）
+- 日付: 2026-08-02（改訂: Codex レビュー5回目の指摘を反映）
 - ステータス: 設計承認済み（実装計画は未作成）
 - 対象: Shogun フレームワークのエージェント間通信・起動管理の再設計
 - **関係**: [`2026-07-17-ichiryo-ichinin-architecture-design.md`](2026-07-17-ichiryo-ichinin-architecture-design.md) を置き換える。
   同ドキュメントは本設計の採用に伴い**廃止（superseded）**とする。
-- **対応 agmsg バージョン**: `fujibee/agmsg` commit `1c7efbc`（`main`、2026-08-01 時点、
-  `VERSION=1.1.12`）に固定する。それ以降の `main` の変更（role resume の挙動変更、
-  tmux-resurrect 連携、herdr spawn 対応など）は追従前に個別に再検証すること。
+- **対応 agmsg バージョン**: `fujibee/agmsg` commit `1c7efbc005c50a7eb3cbd4bac9b1f6ab17825827`
+  （tag `v1.1.12` = commit `6248bb0` の 3 コミット後）に固定する。
+  role resume・herdr spawn 対応・tmux-resurrect 連携はいずれもこの commit
+  **より前**（7月中）に導入済みの機能であり、本設計はそれらを前提として書かれている
+  （「今後の main 追従で新たに入る機能」ではない点に注意）。
 
 ## 1. 背景と問題
 
@@ -32,7 +34,7 @@ CLI エージェント間のクロスベンダーメッセージング）を採�
 
 当初は agmsg に加えて **herdr**（[herdrdev/herdr](https://github.com/herdrdev/herdr)、
 セッション永続化ランタイム）も採用し、tmux をまるごと herdr に置き換える設計を検討した。
-Codex による技術レビューを 3 ラウンド実施した結果、herdr 統合は以下の理由で
+Codex による技術レビューを複数ラウンド実施した結果、herdr 統合は以下の理由で
 Phase 2（本設計のスコープ外）に切り出すこととした。
 
 - herdr のネイティブセッション復元と agmsg の respawn が同一 CLI セッションを
@@ -56,31 +58,50 @@ Phase 1（本設計）では **tmux は現状の 2 セッション構成から 1
    完了したら `agmsg despawn` で畳む。
 3. **tmux は 1 セッション構成に統合する**: agmsg の tmux spawn 実装の制約
    （呼び出し元の現在 window/session にしか spawn できない）に従う。
-   セッション永続化（herdr 統合）は Phase 2 に切り出す。
-4. **Agent Self-Watch の 3 段階エスカレーションは廃止**し、単純な
-   despawn（force、pane/window ID を事前保存）→消失確認→respawn に統一する。
+4. **無応答復旧は Taisho→Karo、Karo→配下 の階層で行う**（Karo 自身が無応答の場合、
+   Karo 自身には復旧できないため、Taisho が Karo を復旧する）。
 5. **タスク完了は task_id ベースの軽量プロトコル**で扱う。再起動をまたぐ永続性は
-   スコープ外とするが、**同一実行中（同一 `run_id`）の retry・受領 ACK・重複排除は
-   必須スコープに含める**（永続化なしでも「タスクが永久に停滞する」ことは許容しない）。
+   スコープ外とするが、**同一実行中（同一 `run_id`）の assign/result 双方向の
+   retry・受領 ACK・重複排除は必須スコープに含める**。
 
-## 3. agmsg の呼び出し方式（実装アダプタ）
+## 3. agmsg の呼び出し API 契約（実装アダプタ）
 
 agmsg は単一のシェル CLI コマンドではない。npm/インストーラーの `agmsg` 実行ファイルは
 セットアップ処理のみを行い、実際のランタイム API は
-`~/.agents/skills/<cmd>/scripts/*.sh`（`send.sh` / `spawn.sh` / `despawn.sh` /
-`inbox.sh` / `history.sh` / `join.sh` / `delivery.sh` 等）を直接呼び出す形で提供される。
+`~/.agents/skills/<cmd>/scripts/*.sh` を直接呼び出す形で提供される
+（`<cmd>` はインストール時に選んだコマンド名。既定 `agmsg`。Shogun は
+`.shogun/config.yaml` の `agmsg.cmd_name` で明示的に指定し、複数 `<cmd>` が
+存在する環境でも一意に解決できるようにする）。
 
-Shogun 側に `scripts/agmsg_adapter.sh` を新設し、以下を担当させる。
+Shogun 側に `scripts/agmsg_adapter.sh` を新設し、以下の**固定シグネチャ**で
+各スクリプトへ委譲する（commit `1c7efbc005c...` 時点の実装に基づく）。
 
-- agmsg のインストールディレクトリ（既定 `~/.agents/skills/<cmd>/`）を解決する。
-- 各操作（send/spawn/despawn/inbox/history/join/delivery mode 設定）を、
-  対応する `scripts/*.sh` に正しい引数で委譲する薄いラッパー関数を提供する。
-- `bin/shogun` および各ロールの指示ファイルは、agmsg のスクリプトパスやコマンド形式を
-  直接知らずに済むよう、このアダプタ経由でのみ agmsg を呼び出す。
+| Shogun アダプタ関数 | 委譲先 | シグネチャ |
+|---|---|---|
+| `agmsg_send` | `send.sh` | `<team> <from> <to> <message> [--force]` |
+| `agmsg_spawn` | `spawn.sh` | `<type> <name> [--team TEAM] [--project PATH] [--model ID] [--boot-prompt TEXT] [--fresh]` |
+| `agmsg_despawn` | `despawn.sh` | `<team> <from> <name> [--force] [--timeout N]` |
+| `agmsg_join` | `join.sh` | `<team> <agent> <type> <project>` |
+| `agmsg_set_delivery` | `delivery.sh` | `set <mode> <type> <project>` |
+| `agmsg_inbox` | `inbox.sh` | `<team> <agent>` |
+| `agmsg_history` | `history.sh` | `<team> [--limit N]` |
 
-テストでは、このアダプタが呼び出す `scripts/*.sh` を fake 実装に差し替える
-（`agmsg` という単一 fake バイナリではなく、`send.sh`/`spawn.sh`/`despawn.sh` 等の
-個別スクリプトをモックする）。
+- 各関数は委譲先スクリプトの **exit code をそのまま返し**、stdout をそのまま
+  呼び出し元に渡す（Shogun 側で標準出力の書式を独自変換しない）。
+- **導入手順**: agmsg のインストールは commit
+  `1c7efbc005c50a7eb3cbd4bac9b1f6ab17825827` を checkout した状態で行う。
+  `shogun doctor` は `version.sh` の出力が
+  `v1.1.12` または `v1.1.12-N-g<short-sha>`（`git describe` 形式）であることを
+  確認する。想定と異なるバージョンが検出された場合は警告し、
+  本設計が前提とする API 契約と齟齬がありうることを明示する。
+- **placement record**: agmsg の spawn/despawn は内部で
+  `id<TAB>project<TAB>type` 形式の placement record ファイルを保持する。
+  `scripts/agmsg_adapter.sh` に、このファイルを読む専用アクセサ
+  （`agmsg_get_placement <team> <name>` のようなもの）を実装し、
+  他のコードから直接パースさせない（フォーマット変更時の影響範囲を限定する）。
+
+テストでは、このアダプタが呼び出す `send.sh`/`spawn.sh`/`despawn.sh`/`inbox.sh`/
+`history.sh`/`join.sh`/`delivery.sh` を個別に fake 実装へ差し替える。
 
 ## 4. 全体アーキテクチャ
 
@@ -91,141 +112,176 @@ Shogun 側に `scripts/agmsg_adapter.sh` を新設し、以下を担当させる
 tmux セッション起動（1 セッション構成、詳細は §5）
   │
   ▼
-Taisho（tmux 常駐ペイン・人間の窓口）
-  │ shogun task "..." → agmsg send taisho
+Taisho（tmux 常駐ペイン・人間の窓口。exclusive watcher 成立手順は §7）
+  │ shogun task "..." → agmsg_send <team> shogun taisho "..."
   │
-  │ 未起動なら agmsg spawn claude-code karo --model <taisho_model> --boot-prompt "<task>"
+  │ 未起動なら agmsg_spawn claude-code karo --model <worker_model> --boot-prompt "<task>"
   ▼
-Karo（オンデマンド、作業完了で despawn）
-  │ 必要に応じて
-  ├─ agmsg spawn claude-code gunshi --model <worker_model>   （設計相談が必要な時だけ）
-  ├─ agmsg spawn claude-code metsuke --model <worker_model>  （レビューが必要な時だけ）
-  └─ agmsg spawn claude-code ashigaru1..N --model <worker_model> （実装タスクがある時だけ）
+Karo（オンデマンド、作業完了で despawn。無応答時は Taisho が復旧）
+  │ 必要に応じて（無応答時は Karo が復旧）
+  ├─ agmsg_spawn claude-code gunshi --model <worker_model>
+  ├─ agmsg_spawn claude-code metsuke --model <worker_model>
+  └─ agmsg_spawn claude-code ashigaru1..N --model <worker_model>
 ```
 
-- 常駐するのは Taisho のみ。Karo/Gunshi/Metsuke/Ashigaru はタスクがある時だけ
-  `agmsg spawn` で起こし、報告完了後は `agmsg despawn` で畳む。
+- 常駐するのは Taisho のみ。**Karo/Gunshi/Metsuke/Ashigaru はすべて `worker_model`
+  を使う**（Taisho だけが `taisho_model` で直接起動される。Karo は Taisho が
+  spawn する worker の一種であり、`taisho_model` は使わない）。
 
-## 5. tmux セッション構成の変更（2 セッション→1 セッション）
+## 5. tmux セッション構成の変更（2 セッション→1 セッション）と pane 管理
 
 agmsg の `spawn.sh` は tmux 経路（`$TMUX` が設定されている場合）で、
-呼び出し元の**現在の window を `split-window`** するか、**現在の session に
-`new-window`** する実装になっており、任意の tmux session を target 指定する
-オプションを持たない。
+`launch_in_tmux()` が呼び出し元の**現在の window を `split-window`** するか、
+**現在の session に `new-window`** する実装になっており、任意の tmux session を
+target 指定するオプションを持たない。したがって Phase 1 では **1 セッション構成**
+に変更する。
 
-現行 Shogun は `taisho-*`（Taisho 専用）と `multiagent-*`（Karo/Gunshi/Metsuke/
-Ashigaru 用）の 2 セッション構成だが、この構成のまま Taisho が Karo を
-`agmsg spawn` すると、Karo は `multiagent-*` ではなく **Taisho の現在の session**
-に生成されてしまい、既存の `shogun attach multi` という UX と両立しない。
-
-したがって Phase 1 では **1 セッション構成**に変更する。
-
-- `shogun start` は単一の tmux セッション（`shogun-<safe_name>-<hash>` のような命名）
-  のみを作成し、Taisho を最初のペインとして起動する。
-- Karo/Gunshi/Metsuke/Ashigaru はタスク発生時に、このセッション内へ
-  `agmsg spawn` で window/pane として追加される。
-- `shogun attach` は単一セッションへの attach のみになる。`shogun attach multi` は
-  廃止し、`shogun attach` のエイリアスとして警告付きで残すか、完全に削除するかは
-  実装計画時にユーザーと確認する。
-- `shogun stop` は単一セッションを `tmux kill-session` するだけでよくなる。
+- `shogun start` は単一の tmux セッション（`shogun-<safe_name>-<hash>`）のみを
+  作成し、Taisho を最初の window（`window 0`）として起動する。
+- **配置方針**: Karo は Taisho とは別 window（`agmsg spawn ... --window` 相当）に
+  window として追加する。Gunshi/Metsuke/Ashigaru は Karo の window 内に pane として
+  追加する（`agmsg spawn` のデフォルトの split 動作をそのまま使う）。
+- **pane メタデータの引き継ぎ**: agmsg は生成した window/pane に対して window 名や
+  pane title のみを設定し、Shogun 固有のメタデータ
+  （`@shogun_role`/`@shogun_color`/`@agent_id`、`_set_pane_role_label()`）は
+  設定しない。spawn 成功後、Shogun 側（呼び出した Karo/Taisho 側の adapter 呼び出し）が
+  agmsg の placement record から実際の `%pane_id`（または `@window_id` の場合は
+  その window の root pane）を取得し、`_set_pane_role_label()` を呼んで
+  役職ラベル・色を設定する。
+- pane を追加した window では、追加のたびに `tmux select-layout tiled` を
+  再適用する。
 
 ## 6. 通信層（agmsg）
 
 - 1 Shogun プロジェクト = 1 agmsg チーム。エージェント名 = 役職名
   （`taisho`, `karo`, `gunshi`, `metsuke`, `ashigaru1..N`）とし、
-  agmsg の `actas` は原則使わない（役職固定のため不要）。
+  agmsg の `actas` は原則使わない（Taisho の readiness 成立を除く。§7 参照）。
 - 配信モードは `monitor`（リアルタイム push）をデフォルトにする。
-  これは agmsg の SessionStart hook + Monitor ツールで実現され、
-  現在の `inbox_watcher.sh` による fswatch wake-up の代替になる。
-- `shogun task "..."` は agmsg の `send`（アダプタ経由）に置き換える
-  （Taisho への直接メッセージ送信）。既存の `shogun_to_karo.yaml` は廃止。
+- **`shogun` という送信元 identity**: `send.sh` は `from`/`to` が共に
+  team に登録済みであることを要求する。`shogun task "..."` の送信元として
+  `shogun init` 時に `agmsg_join <team> shogun <type> <project>` で
+  system identity として `shogun` を登録する（`<type>` は headless な
+  最小 type を割り当て、実際に spawn/actas はしない）。
+- `shogun task "..."` は `agmsg_send <team> shogun taisho "..."` に置き換える。
+  既存の `shogun_to_karo.yaml` は廃止。
 - Karo→Gunshi/Metsuke/Ashigaru へのタスク割り当て・報告も全て agmsg の send/history で
   やり取りする。`.shogun/queue/tasks/*.yaml`・`reports/*.yaml`・`reviews/*.yaml` は廃止。
-- **`dashboard.md`（進捗ボード）は Taisho が更新する**（既存の
-  `templates/instructions/taisho.md` の運用を踏襲。Karo に移管しない）。
-  Karo は agmsg 経由で Taisho に進捗を報告し、Taisho がそれを dashboard.md に反映する。
-- `shogun init`/`shogun start` は、Taisho の agmsg team join、
-  `delivery.sh set monitor claude-code <project>` によるモード設定、
-  既存 `.claude/settings.json`（`inject_role`/`stop_hook` 等）と agmsg が生成する
-  `.claude/settings.local.json` の共存を担当する。両者のフック定義が競合しないよう、
-  `shogun init` のマージ処理（`_merge_claude_settings`）を agmsg 側の設定にも対応させる。
+- **dashboard.md の単一ライター契約**: `dashboard.md` は **Taisho のみ**が更新する
+  （既存の `templates/instructions/taisho.md` の運用を踏襲）。Karo は
+  `task_id → status` の正本データを **Karo 専用の run-scoped 状態ファイル**
+  （dashboard.md ではない）に保持し、進捗を agmsg メッセージで Taisho へ報告する。
+  Taisho がそれを受けて dashboard.md に反映する。Karo が dashboard.md を
+  直接編集することはない。
 - `templates/CLAUDE.md` / `templates/instructions/karo.md` など、
   YAML キュー/MCP を前提にした既存のエージェント指示文書は、agmsg の
   send/inbox/history 前提の記述に書き換える（実装計画のタスクとして明記する）。
 
-## 7. spawn/despawn 運用
+## 7. Taisho の join・readiness・exclusive watcher 成立
+
+agmsg の ready sentinel は、`ACTIVE_NAME` を持つ **exclusive watcher**
+（= `actas` 経由で役割を確立したセッション）にしか作られない。通常の
+broad watcher（team に join しただけの状態）には ready sentinel がない。
+Taisho は Shogun が直接 `claude` を起動するため、agmsg の `spawn` 経由の
+boot prompt（`/<cmd> actas <name>` を自動実行する仕組み）を通らない。
+
+`shogun start` は以下の手順で Taisho の readiness を成立させ、
+**この完了を確認してから成功を返す**（`shogun task` はそれまで拒否する）。
+
+1. Taisho 用の古い ready sentinel（前回実行の残骸）を起動前に削除する。
+2. `agmsg_join <team> taisho <type> <project>` を実行する。
+3. `agmsg_set_delivery <team> monitor <type> <project>` で配信モードを設定する。
+4. Taisho の `claude` 起動時、初期プロンプトとして
+   `/<cmd> actas taisho` を実行させる（Taisho 用の boot prompt に含める）。
+   これにより Taisho のセッションが exclusive watcher として確立される。
+5. 起動後、ready sentinel の存在をポーリングで確認する（タイムアウト付き）。
+   確認時は以下を照合する。
+   - sentinel 内の `session_id` が今回起動した Taisho の Claude Code
+     セッション ID と一致すること。
+   - sentinel が指す watcher の PID が実際に生存していること。
+6. 5 が確認できて初めて `shogun start` は成功を返す。確認できない場合は
+   エラーを返し、tmux セッションを残したまま診断情報を表示する
+   （`shogun doctor` 相当の情報）。
+
+## 8. spawn/despawn 運用と resume/`--fresh` の使い分け
 
 - モデル選択は agmsg のネイティブ `--model` オプションで直接指定する
-  （`agmsg spawn claude-code <role> --model "$worker_model"`）。
-  agmsg の type manifest（`scripts/drivers/types/claude-code/type.conf` の
-  `model_arg=--model`）がそのまま渡すため、独自ラッパーは不要。
-  Taisho は `shogun start` 側で `taisho_model` を使って直接起動する。
-- `spawn_options.yaml`（`~/.agmsg/config/spawn_options.yaml`）は agent **type** 単位
-  （claude-code, codex 等）でしか分岐できないため、role 別設定はこのファイルに
-  持たせない。role 固有の設定は Shogun 側の spawn 呼び出し（`--model` の値）が持つ。
+  （`agmsg_spawn claude-code <role> --model "$worker_model"`）。
+  Taisho 以外の全ロール（Karo 含む）は `worker_model` を使う。
+- `spawn_options.yaml` は agent **type** 単位でしか分岐できないため、role 別設定は
+  このファイルに持たせない。role 固有の設定は Shogun 側の spawn 呼び出しが持つ。
 
-### resume と `--fresh` の使い分け
+### resume と `--fresh` の使い分け（run_id 状態管理）
 
-agmsg は `spawn` 時、role の以前の Claude Code セッションを**デフォルトで resume**
-する（`type.conf` の `resume_arg=--resume`、`role-session.sh` が保存する
-`(team, agent) → session UUID` の best-effort レコードに基づく）。これは
-「プロセスが落ちたら `shogun start` からやり直す」という前提と素直には両立しない。
+agmsg は `spawn` 時、`agmsg_role_resume_uuid()` が
+「`--fresh` が指定されておらず」「type に `resume_arg` があり」
+「`(team, agent)` の role-session record があり」「transcript が存在する」の
+すべてを満たす場合に、role の以前のセッションを resume する。
 
-`shogun start` ごとに新しい `run_id`（UUID）を発行し、以下のルールで使い分ける。
+`shogun start` ごとに新しい `run_id`（UUID）を発行し、Shogun 側の
+run-scoped 状態ファイル（Karo が保持する run state。§6 参照）に
+**role ごとの「この run で fresh spawn が成立済みか」フラグ**を記録する。
 
-- **新しい `run_id` の最初の spawn**（`shogun start` 直後の初回起動）:
-  明示的に `--fresh` を付与し、前回実行の古い会話文脈を持ち込まない。
-- **同一 `run_id` 内の再 spawn**（無応答復旧、または一時的な despawn/再 spawn）:
-  `--fresh` を付けず、agmsg のデフォルト resume を許可する
-  （直前の会話文脈が継続する方が望ましいため）。
-- どちらの場合も、古い会話文脈の内容を現在の `task_id` の正としない
-  （§8 の task journal 相当の状態が正であり、会話 resume はあくまで
-  エージェントの作業体験を助けるものと位置づける）。
+- **成立の判定基準**: 単に spawn コマンドを発行した時点ではなく、
+  `agmsg spawn` が `status=ready` を返し、かつ当該 role の role-session record
+  がこの run の session_id に更新されたことを確認した時点で「成立」とする。
+- **新しい run の最初の spawn**（フラグが未成立）:
+  明示的に `--fresh` を付与する。
+- **spawn がタイムアウト・失敗した場合**: フラグは「未成立」のまま維持する
+  （次の spawn 試行でも引き続き `--fresh` を使う。誤って前 run の
+  session を resume させない）。
+- **フラグが成立済みの状態での再 spawn**（同一 run 内の無応答復旧など）:
+  `--fresh` を付けず、agmsg のデフォルト resume を許可する。
+- `shogun start` 実行時、前回の run state ファイルは破棄し、新しい `run_id` で
+  作り直す。
 
-## 8. 無応答ワーカーの復旧
+## 9. 無応答ワーカーの復旧
 
-3 段階エスカレーション（phase1_nudge/phase2_interrupt/phase3_clear）は廃止し、
-以下のステートマシンに統一する。
+**復旧の主体は階層で分ける**: Karo/Gunshi/Metsuke/Ashigaru の無応答は
+Karo が検知・復旧する。**Karo 自身の無応答は Taisho が検知・復旧する**
+（Karo は自分自身を復旧できない）。
 
-1. 無応答検知（一定時間 inbox 未読が変化しない、または pane 出力が停滞）
-2. **force 前に、agmsg の placement record から対象ロールの正確な
-   `%pane_id`（または `@window_id`）を取得して保存する**
-   （agmsg の force despawn は成功可否に関わらず placement record を削除するため、
-   force 実行後では確認対象の ID が失われる）。
-3. 保存した ID が、期待する Shogun プロジェクト・tmux セッションに属することを
-   検証する（他プロジェクトの同名ロールを誤認しないため）。
-4. `agmsg despawn <role> --force` を実行する
-   （`despawn.sh` の `kill_recorded_placement` は `tmux kill-pane`/`kill-window` の
-   失敗を `|| true` で握り潰し、常に `status=forced` を返すため、戻り値は信用しない）。
-5. `tmux list-panes -a -F '#{pane_id} #{session_name}'`（または `list-windows`）で、
-   手順 2 で保存した正確な ID が（対象セッション内に）存在しないことを確認する。
-6. ID が確認できない、または対象が別セッションだった場合は respawn しない
-   （dashboard に「孤児ペイン」として表示し、人間の介入を促す）。
-7. 消失確認できた場合のみ、同一 `run_id` 内の再 spawn として
-   `agmsg spawn claude-code <role> --model ...`（`--fresh` なし）を実行する。
-8. 手順 1〜7 は Karo の単一直列処理に限定し、並行実行しない。
+以下のステートマシンで統一する（3 段階エスカレーションは廃止）。
 
-## 9. タスク完了プロトコル
+1. 無応答検知（一定時間 inbox 未読が変化しない、または pane 出力が停滞）。
+2. **force 前の事前検証**:
+   - agmsg の placement record から対象ロールの `id` を取得する。
+   - `id` が `^%[0-9]+$`（pane）または `^@[0-9]+$`（window）の形式であることを
+     検証する。形式が不正、または record 自体が存在しない場合は force しない
+     （即座に「孤児」扱いとし、人間の介入を促す）。
+   - `tmux display-message -t "$id" -p '#{session_name}'` で取得した
+     session が、期待する Shogun の tmux セッションと一致することを確認する
+     （他プロジェクトの同名ロールとの誤認を防ぐ）。
+3. `agmsg_despawn <team> <from> <role> --force` を実行する
+   （`despawn.sh` の force 分岐は tmux 削除失敗を `|| true` で握り潰し、
+   常に `status=forced`・exit 0 を返すため、戻り値は信用しない）。
+4. **force 後の事後検証**: `tmux list-panes -a -F '#{pane_id}'` および
+   `tmux list-windows -a -F '#{window_id}'`（**tmux server 全体**、対象
+   セッション内だけではない）を取得し、手順 2 で保存した `id` が
+   どこにも存在しないことを確認する。
+   - 存在しない → 消失確認済み。手順 5 へ進む。
+   - どこかに存在する → 消失していない。respawn せず「孤児ペイン」として
+     dashboard に表示し、人間の介入を促す。
+5. 消失確認できた場合のみ、同一 `run_id` 内の再 spawn として
+   `agmsg_spawn claude-code <role> --model "$worker_model"`（`--fresh` なし、
+   §8 のフラグに従う）を実行する。
+6. 手順 1〜5 は、当該役職の復旧主体（Karo または Taisho）の単一直列処理に
+   限定し、並行実行しない。
 
-agmsg は配送 ACK 付きキューではない（`send.sh` が保証するのは SQLite INSERT の
-成功までで、`watch.sh` の `mark_read` は Monitor の stdout へ書き込んだ直後に
-best-effort で更新されるだけであり、下流が実際に処理した保証にはならない）。
-mcp-queue を廃止する代わりに、以下のプロトコルを Shogun 側に導入する。
+## 10. タスク完了プロトコル
 
-**永続 task journal・retry/lease/fencing は Phase 1 のスコープ外**（Phase 2 で
-herdr 統合とあわせて再検討する）。ただし**同一実行中（同一 `run_id`）の
-retry・受領 ACK・重複排除は必須**とする（これがないとタスクが永久に停滞しうる）。
+agmsg は配送 ACK 付きキューではない。mcp-queue を廃止する代わりに、
+以下のプロトコルを Shogun 側に導入する。**永続 task journal・retry/lease/fencing
+は Phase 1 のスコープ外**だが、**同一実行中（同一 `run_id`）の assign 側・result
+側 双方向の retry・受領 ACK・重複排除は必須**とする。
 
 ### メッセージ envelope
-
-機械可読な JSON envelope をメッセージ本文に含める。
 
 ```json
 {
   "protocol_version": 1,
   "run_id": "<shogun start ごとの UUID>",
   "task_id": "<UUID、run を跨いで再利用しない>",
-  "type": "assign | accepted | result | ack | reject | failed",
+  "type": "assign | accepted | started | result | ack | reject | failed",
   "from": "karo",
   "to": "ashigaru1",
   "attempt": 1,
@@ -240,37 +296,59 @@ pending → assigned → accepted → in_progress → done → acked
                   ↘ reject                  ↘ failed / timeout
 ```
 
-- `assign` 送信後、Karo は一定時間内に `accepted`（受領 ACK）を受け取れなければ、
-  同じ `task_id`・インクリメントした `attempt` で再送する（上限リトライ回数を設ける）。
+### assign 側の信頼性（Karo → worker）
+
+- `assign` 送信後、Karo は一定時間内に `accepted` を受け取れなければ、
+  同じ `task_id`・インクリメントした `attempt` で再送する（リトライ上限あり）。
 - worker は同じ `task_id` の重複 `assign` を再実行せず、現在の状態または
   既存の `result` をそのまま返す。
-- Karo は重複 `result`（同じ `task_id`）を一度だけ検証し、
-  同じ完了 `ack` を再送してよい（副作用を再実行しない）。
-- `reject`/`failed`/timeout の状態は dashboard に表示し、人間判断を仰ぐ。
-- Karo は `task_id → status` を自分の実行中だけ追跡する（dashboard.md、または
-  Karo 専用の簡易な状態ファイルに記録。単一ライターのため SQLite やロック機構は不要）。
 
-### Taisho の readiness/priming
+### result 側の信頼性（worker → Karo）— 新設
 
-- `shogun start` は、Taisho の agmsg team join・`delivery.sh set monitor` の設定
-  完了後、Taisho の exclusive Monitor watcher が実際に購読を開始したこと
-  （readiness sentinel の存在）を確認してから成功を返す（タイムアウト付きポーリング）。
-- readiness 確認前に `shogun task` を受け付けない
-  （agmsg の fresh watcher は起動時点の `MAX(id)` を watermark とするため、
-  起動前に送られたメッセージは live delivery では拾われない）。
+- `accepted` 後、Karo は **result deadline**（役職・タスク種別ごとに設定可能な
+  タイムアウト）を設定する。deadline 超過時、Karo は同じ `task_id` で
+  状態照会メッセージ（`type: "status_query"` 相当）を送る。
+- **worker は `result` を送信後、Karo からの `ack` を受け取るまで
+  `result` を定期的に再送する**（一定間隔、上限回数）。
+- **worker は `ack` を確認するまで despawn しない**
+  （despawn は §9 のプロトコルとは独立して、「完了報告が ACK された後」
+  という完了条件が前提になる）。
+- Karo は重複 `result`（同じ `task_id`）の受信を冪等に処理する
+  （既に `acked` 済みの `task_id` であれば、検証をやり直さず同じ `ack` を
+  再送するだけでよい）。
+- `reject`/`failed`/timeout の状態は Taisho への報告経由で dashboard に表示し、
+  人間判断を仰ぐ。
 
-## 10. 設定・CLI の変更点
+## 11. hook 移行・`inject_role.sh` リファクタ・終了時 cleanup
+
+- `templates/.claude/settings.json` から `stop_hook.sh`/`mark_busy.sh` の
+  フック登録を削除する。既存プロジェクトの `.claude/settings.json` に対しては、
+  `shogun upgrade` 時に該当エントリを除去するマイグレーション処理を追加する
+  （現行の `_merge_claude_settings()` は追加・保持のみで削除しないため、
+  削除専用の処理を別途実装する）。
+- `scripts/inject_role.sh` は、現在含まれる idle flag・mcp-queue 未読確認ロジックを
+  削除し、役職アイデンティティ注入のみを残すようリファクタする。
+- `shogun stop` の終了処理として、以下を明示的に行う。
+  - Taisho の exclusive actas lock の解放。
+  - Taisho・稼働中 worker の ready sentinel / watcher PID ファイルの消失確認。
+  - 稼働中だった worker の placement record の残存有無を確認し、
+    残っていれば dashboard 等でユーザーに警告する。
+  - team registration は run を跨いで維持する（`shogun reset` の場合のみ、
+    team 自体を作り直すか検討する）。
+
+## 12. 設定・CLI の変更点
 
 - `.shogun/config.yaml`: `agents.ashigaru_count` / `agents.worker_model` /
   `agents.taisho_model` は維持。`escalation_policy`（3段階）は
   `unresponsive_timeout_sec` のような単一項目に置き換える。
+  `agmsg.cmd_name`（agmsg のインストールコマンド名）を新設する。
 - `shogun start` / `shogun stop` / `shogun attach` / `shogun task` / `shogun status` /
   `shogun view` の内部実装を agmsg 呼び出し（§3 のアダプタ経由）に置き換える。
   `shogun attach multi` は 1 セッション構成への変更に伴い廃止する（§5）。
-- `shogun doctor` に agmsg の存在確認・対応バージョン（commit `1c7efbc`/`1.1.12`系）の
-  確認を追加する。
+- `shogun doctor` に agmsg の存在確認・対応バージョン（commit
+  `1c7efbc005c...`/`v1.1.12` 系）の確認を追加する（§3 参照）。
 
-## 11. 廃止対象ファイル
+## 13. 廃止対象ファイル
 
 - `scripts/inbox_write.sh` / `scripts/inbox_watcher.sh` / `scripts/mcp_manager.sh`
 - `scripts/mark_busy.sh` / `scripts/stop_hook.sh` / `scripts/flag_names.sh`
@@ -278,22 +356,24 @@ pending → assigned → accepted → in_progress → done → acked
 - `packages/mcp-queue/` パッケージ全体
 - `.shogun/queue/` 配下（tasks/reports/reviews/inbox/*.yaml、shogun_to_karo.yaml）
 
-`scripts/inject_role.sh` は**残す**（役職アイデンティティ注入は引き続き必要、
-agmsg の actas とは別レイヤー）。
+`scripts/inject_role.sh` は**残す**（§11 の通りリファクタする）。
 
-## 12. テスト方針
+## 14. テスト方針
 
 - `scripts/agmsg_adapter.sh` が呼び出す agmsg の個別スクリプト
   （`send.sh`/`spawn.sh`/`despawn.sh`/`inbox.sh`/`history.sh`/`join.sh`/`delivery.sh`）は
-  `tests/unit/` で fake 実装に差し替えてモックする（単一 fake `agmsg` バイナリではない）。
-- タスク完了プロトコル（envelope のパース、状態遷移、retry/重複排除ロジック）は
-  `tests/unit/` で純粋関数としてテストする。
-- 無応答復旧のステートマシン（pane/window ID 保存→force→消失確認→respawn）は
-  fake tmux コマンドを使って `tests/unit/` でテストする。
+  `tests/unit/` で fake 実装に差し替えてモックする（§3 のシグネチャ通りに
+  引数を検証する）。
+- タスク完了プロトコル（envelope のパース、状態遷移、assign/result 双方向の
+  retry・重複排除ロジック）は `tests/unit/` で純粋関数としてテストする。
+- 無応答復旧のステートマシン（ID 事前検証→force→server 全体での消失確認→
+  respawn）は fake tmux コマンドを使って `tests/unit/` でテストする。
+- Taisho readiness（ready sentinel 生成・session_id/PID 照合）は
+  fake agmsg スクリプトを使って `tests/unit/` でテストする。
 - `shogun start`/`stop`/`task` の統合フロー（1 セッション構成、readiness 確認込み）は
   `tests/integration/` で、fake agmsg スクリプト群・fake `claude`/`tmux` を使って検証する。
 
-## 13. スコープ外（Phase 2 として将来検討）
+## 15. スコープ外（Phase 2 として将来検討）
 
 herdr 統合によるセッション永続化は本設計のスコープ外とする。Phase 2 着手時は
 以下を仕様に含める必要がある（Codex による複数ラウンドのレビューで判明した論点）。
@@ -307,16 +387,11 @@ herdr 統合によるセッション永続化は本設計のスコープ外と�
 - **永続 task journal の再設計**: 単一の `tasks` テーブルではなく、
   `tasks`（現在状態）/ `task_events`（追記専用履歴）/ `outbox`
   （agmsg への未送信通知）/ `leases`（fencing token 付き貸出期限）に分割する。
-  journal DB と agmsg の DB は別ファイルのため、dual-write 問題
-  （クラッシュ境界での配送欠落・重複）に outbox パターンで対処する。
 - **force despawn の事前/事後記録**: herdr 環境でも同様に、削除前にペイン ID を
   保存し、削除後に herdr の pane inventory で消失を再確認してから状態を確定する
-  仕組みが必要（本設計の §8 の考え方を herdr 環境へ拡張する）。
+  仕組みが必要（本設計の §9 の考え方を herdr 環境へ拡張する）。
 - **restart 種別の機械的な切り分け**: detach/reattach・Shogun CLI 再起動・
   herdr server cold restart・OS 再起動・live handoff をそれぞれ区別し、
-  server epoch・pane inventory・watcher の生存確認などから機械的に判定する
-  （呼び出し理由の申告を信用しない）。
-- **Taisho readiness の検証強化**: agmsg の exclusive watcher + ready sentinel は
-  常駐固定ロールにも技術的に転用できるが、stale sentinel の誤認、
-  sentinel 所有者・watcher PID の生存確認、herdr 側での agent 入力可能状態の確認を
-  追加する必要がある。
+  server epoch・pane inventory・watcher の生存確認などから機械的に判定する。
+- **Taisho readiness の検証強化**: §7 の考え方を herdr 環境にも拡張し、
+  stale sentinel の誤認防止、herdr 側での agent 入力可能状態の確認を追加する。

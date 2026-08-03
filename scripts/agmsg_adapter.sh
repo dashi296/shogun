@@ -72,21 +72,22 @@ _agmsg_dispatch() {
   bash "$script" "$@"
 }
 
-agmsg_send()         { _agmsg_dispatch "$1" send.sh     "${@:2}"; }
-agmsg_join()          { _agmsg_dispatch "$1" join.sh      "${@:2}"; }
-agmsg_set_delivery()  { _agmsg_dispatch "$1" delivery.sh  "${@:2}"; }
-agmsg_spawn()         { _agmsg_dispatch "$1" spawn.sh     "${@:2}"; }
-agmsg_despawn()       { _agmsg_dispatch "$1" despawn.sh   "${@:2}"; }
-agmsg_inbox()         { _agmsg_dispatch "$1" inbox.sh     "${@:2}"; }
-agmsg_history()       { _agmsg_dispatch "$1" history.sh   "${@:2}"; }
+# 各関数の "${@:2}" は $1（cmd_name）を除いた残り引数（agmsgスクリプトへ渡す）。
+agmsg_send() { _agmsg_dispatch "$1" send.sh "${@:2}"; }
+agmsg_join() { _agmsg_dispatch "$1" join.sh "${@:2}"; }
+agmsg_set_delivery() { _agmsg_dispatch "$1" delivery.sh "${@:2}"; }
+agmsg_spawn() { _agmsg_dispatch "$1" spawn.sh "${@:2}"; }
+agmsg_despawn() { _agmsg_dispatch "$1" despawn.sh "${@:2}"; }
+agmsg_inbox() { _agmsg_dispatch "$1" inbox.sh "${@:2}"; }
+agmsg_history() { _agmsg_dispatch "$1" history.sh "${@:2}"; }
 
 # agmsg の spawn が記録する placement record（team/agent の tmux 配置先）を読む。
-# team/agent は ^[A-Za-z0-9_-]+$ のみ許可する（この文字集合は agmsg 内部の
-# percent-encoding の対象にならないため、直接パスを組み立てられる）。
+# team/agent の文字集合検証は agmsg_cmd_name_valid と共通（agmsg 内部の
+# percent-encoding の対象にならない文字集合なので、直接パスを組み立てられる）。
 agmsg_get_placement() {
   local cmd_name="$1" team="$2" agent="$3"
-  [[ "$team" =~ ^[A-Za-z0-9_-]+$ ]] || return 2
-  [[ "$agent" =~ ^[A-Za-z0-9_-]+$ ]] || return 2
+  agmsg_cmd_name_valid "$team" || return 2
+  agmsg_cmd_name_valid "$agent" || return 2
 
   local home
   home="$(_agmsg_home "$cmd_name")" || return $?

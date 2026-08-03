@@ -139,6 +139,34 @@ teardown() {
   [ "$status" -eq 0 ]
 }
 
+@test "agmsg_adapter: agmsg_version_string_ok accepts a pre-fetched matching version string" {
+  run agmsg_version_string_ok "v1.1.12-3-g1c7efbc"
+  [ "$status" -eq 0 ]
+}
+
+@test "agmsg_adapter: agmsg_version_string_ok rejects a pre-fetched mismatched version string" {
+  run agmsg_version_string_ok "v2.0.0"
+  [ "$status" -eq 1 ]
+}
+
+# --- installation check ---
+
+@test "agmsg_adapter: agmsg_installed returns true when scripts/ exists" {
+  mkdir -p "${AGMSG_TEST_HOME}/scripts"
+  run agmsg_installed "mycmd"
+  [ "$status" -eq 0 ]
+}
+
+@test "agmsg_adapter: agmsg_installed returns false when scripts/ is missing" {
+  run agmsg_installed "mycmd"
+  [ "$status" -eq 1 ]
+}
+
+@test "agmsg_adapter: agmsg_installed propagates cmd_name validation failure" {
+  run agmsg_installed "bad/name"
+  [ "$status" -eq 2 ]
+}
+
 # --- pass-through wrapper functions ---
 # 各委譲先スクリプトを fake 実装に差し替え、渡された引数をそのまま echo する。
 

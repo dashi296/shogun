@@ -40,10 +40,11 @@ agmsg_version() {
 }
 
 # バージョン文字列が対応バージョン（v1.1.12 系の git-describe 形式）か判定する
-# 純粋関数（I/O なし）。既に agmsg_version 等でバージョン文字列を取得済みの
-# 呼び出し元は、再度 agmsg_version_ok を呼んで VERSION ファイルを読み直すのではなく
-# こちらへ直接渡すことで、ファイル読み取り・_agmsg_home の再評価を避けられる。
-_agmsg_version_string_ok() {
+# 純粋関数（I/O なし）。公開関数——既に agmsg_version 等でバージョン文字列を
+# 取得済みの呼び出し元は、再度 agmsg_version_ok を呼んで VERSION ファイルを
+# 読み直すのではなく、こちらへ直接渡すことでファイル読み取り・_agmsg_home の
+# 再評価を避けられる。
+agmsg_version_string_ok() {
   [[ "$1" =~ ^v1\.1\.12(-[0-9]+-g[0-9a-f]+)?(-dirty)?$ ]]
 }
 
@@ -52,7 +53,16 @@ agmsg_version_ok() {
   local cmd_name="${1:?cmd_name required}"
   local version
   version="$(agmsg_version "$cmd_name")" || return $?
-  _agmsg_version_string_ok "$version"
+  agmsg_version_string_ok "$version"
+}
+
+# agmsg がインストール済みか判定する（インストール先に scripts/ があるか）。
+# 呼び出し元は _agmsg_home の存在やパス形式を知る必要がない。
+agmsg_installed() {
+  local cmd_name="${1:?cmd_name required}"
+  local home
+  home="$(_agmsg_home "$cmd_name")" || return $?
+  [[ -d "${home}/scripts" ]]
 }
 
 # 委譲先スクリプトのパスを返す。

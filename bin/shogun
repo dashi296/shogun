@@ -1216,7 +1216,7 @@ cmd_doctor() {
   echo -e "${BOLD}[ agmsg ]${RESET}"
   local _agmsg_cmd_name="agmsg"
   if SHOGUN_ROOT="$(find_shogun_root 2>/dev/null)" && [[ -f "${SHOGUN_ROOT}/.shogun/config.yaml" ]]; then
-    _agmsg_cmd_name="$(read_agmsg_cmd_name "${SHOGUN_ROOT}/.shogun/config.yaml")"
+    _agmsg_cmd_name="$(read_agmsg_cmd_name "${SHOGUN_ROOT}/.shogun/config.yaml")" || _agmsg_cmd_name="agmsg"
   fi
   local _agmsg_home_dir="" _agmsg_home_rc=0
   _agmsg_home_dir="$(_agmsg_home "$_agmsg_cmd_name")" || _agmsg_home_rc=$?

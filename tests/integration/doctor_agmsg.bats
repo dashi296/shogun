@@ -51,3 +51,10 @@ fs.writeFileSync(file, yaml.dump(d, {allowUnicode: true}));
   [[ "$output" == *"agmsg.cmd_name が不正です"* ]]
   [[ "$output" == *"[ .shogun/ ]"* ]]
 }
+
+@test "doctor: falls back to default cmd_name when config.yaml is malformed YAML (does not abort)" {
+  printf 'agmsg: [invalid\n' > .shogun/config.yaml
+  run shogun doctor
+  [[ "$output" == *"[ agmsg ]"* ]]
+  [[ "$output" == *"[ .shogun/ ]"* ]]
+}

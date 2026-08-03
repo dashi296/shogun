@@ -22,8 +22,9 @@ _agmsg_home() {
 # インストール済み agmsg のバージョン（VERSION ファイルの最初の行を trim したもの）を返す。
 agmsg_version() {
   local cmd_name="${1:?cmd_name required}"
-  local version_file
-  version_file="$(_agmsg_home "$cmd_name")/VERSION"
+  local home
+  home="$(_agmsg_home "$cmd_name")" || return $?
+  local version_file="${home}/VERSION"
   if [[ -f "$version_file" ]]; then
     head -n 1 "$version_file" | tr -d '[:space:]'
   else
@@ -42,42 +43,58 @@ agmsg_version_ok() {
 # 委譲先スクリプトのパスを返す。
 _agmsg_script() {
   local cmd_name="$1" script="$2"
-  printf '%s/scripts/%s' "$(_agmsg_home "$cmd_name")" "$script"
+  local home
+  home="$(_agmsg_home "$cmd_name")" || return $?
+  printf '%s/scripts/%s' "$home" "$script"
 }
 
 agmsg_send() {
   local cmd_name="$1"; shift
-  bash "$(_agmsg_script "$cmd_name" send.sh)" "$@"
+  local script
+  script="$(_agmsg_script "$cmd_name" send.sh)" || return $?
+  bash "$script" "$@"
 }
 
 agmsg_join() {
   local cmd_name="$1"; shift
-  bash "$(_agmsg_script "$cmd_name" join.sh)" "$@"
+  local script
+  script="$(_agmsg_script "$cmd_name" join.sh)" || return $?
+  bash "$script" "$@"
 }
 
 agmsg_set_delivery() {
   local cmd_name="$1"; shift
-  bash "$(_agmsg_script "$cmd_name" delivery.sh)" "$@"
+  local script
+  script="$(_agmsg_script "$cmd_name" delivery.sh)" || return $?
+  bash "$script" "$@"
 }
 
 agmsg_spawn() {
   local cmd_name="$1"; shift
-  bash "$(_agmsg_script "$cmd_name" spawn.sh)" "$@"
+  local script
+  script="$(_agmsg_script "$cmd_name" spawn.sh)" || return $?
+  bash "$script" "$@"
 }
 
 agmsg_despawn() {
   local cmd_name="$1"; shift
-  bash "$(_agmsg_script "$cmd_name" despawn.sh)" "$@"
+  local script
+  script="$(_agmsg_script "$cmd_name" despawn.sh)" || return $?
+  bash "$script" "$@"
 }
 
 agmsg_inbox() {
   local cmd_name="$1"; shift
-  bash "$(_agmsg_script "$cmd_name" inbox.sh)" "$@"
+  local script
+  script="$(_agmsg_script "$cmd_name" inbox.sh)" || return $?
+  bash "$script" "$@"
 }
 
 agmsg_history() {
   local cmd_name="$1"; shift
-  bash "$(_agmsg_script "$cmd_name" history.sh)" "$@"
+  local script
+  script="$(_agmsg_script "$cmd_name" history.sh)" || return $?
+  bash "$script" "$@"
 }
 
 # agmsg の spawn が記録する placement record（team/agent の tmux 配置先）を読む。
@@ -88,8 +105,9 @@ agmsg_get_placement() {
   [[ "$team" =~ ^[A-Za-z0-9_-]+$ ]] || return 2
   [[ "$agent" =~ ^[A-Za-z0-9_-]+$ ]] || return 2
 
-  local record_file
-  record_file="$(_agmsg_home "$cmd_name")/run/spawn.${team}__${agent}"
+  local home
+  home="$(_agmsg_home "$cmd_name")" || return $?
+  local record_file="${home}/run/spawn.${team}__${agent}"
   [[ -f "$record_file" ]] || return 1
   cat "$record_file"
 }

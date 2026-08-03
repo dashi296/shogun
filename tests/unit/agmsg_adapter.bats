@@ -185,3 +185,61 @@ FAKE
   run agmsg_get_placement "mycmd" "team1" "../evil"
   [ "$status" -eq 2 ]
 }
+
+# --- cmd_name validation must propagate through every derived function ---
+# (regression coverage: an invalid cmd_name must not be silently swallowed by
+# an intermediate "$(...)" substitution — it must surface as exit 2)
+
+@test "agmsg_adapter: _agmsg_script propagates _agmsg_home's failure on invalid cmd_name" {
+  unset AGMSG_HOME_OVERRIDE
+  run _agmsg_script "bad/name" send.sh
+  [ "$status" -eq 2 ]
+  [ -z "$output" ]
+}
+
+@test "agmsg_adapter: agmsg_version propagates _agmsg_home's failure on invalid cmd_name" {
+  run agmsg_version "bad/name"
+  [ "$status" -eq 2 ]
+  [ -z "$output" ]
+}
+
+@test "agmsg_adapter: agmsg_get_placement propagates _agmsg_home's failure on invalid cmd_name" {
+  run agmsg_get_placement "bad/name" "team1" "karo"
+  [ "$status" -eq 2 ]
+  [ -z "$output" ]
+}
+
+@test "agmsg_adapter: agmsg_send propagates cmd_name validation failure without invoking anything" {
+  run agmsg_send "bad/name" team1 karo taisho msg
+  [ "$status" -eq 2 ]
+}
+
+@test "agmsg_adapter: agmsg_join propagates cmd_name validation failure without invoking anything" {
+  run agmsg_join "bad/name" team1 taisho claude-code /proj
+  [ "$status" -eq 2 ]
+}
+
+@test "agmsg_adapter: agmsg_set_delivery propagates cmd_name validation failure without invoking anything" {
+  run agmsg_set_delivery "bad/name" set monitor claude-code /proj
+  [ "$status" -eq 2 ]
+}
+
+@test "agmsg_adapter: agmsg_spawn propagates cmd_name validation failure without invoking anything" {
+  run agmsg_spawn "bad/name" claude-code karo
+  [ "$status" -eq 2 ]
+}
+
+@test "agmsg_adapter: agmsg_despawn propagates cmd_name validation failure without invoking anything" {
+  run agmsg_despawn "bad/name" team1 karo ashigaru1
+  [ "$status" -eq 2 ]
+}
+
+@test "agmsg_adapter: agmsg_inbox propagates cmd_name validation failure without invoking anything" {
+  run agmsg_inbox "bad/name" team1 karo
+  [ "$status" -eq 2 ]
+}
+
+@test "agmsg_adapter: agmsg_history propagates cmd_name validation failure without invoking anything" {
+  run agmsg_history "bad/name" team1
+  [ "$status" -eq 2 ]
+}

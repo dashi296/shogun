@@ -38,3 +38,44 @@ agmsg_version_ok() {
   version="$(agmsg_version "$cmd_name")"
   [[ "$version" == v1.1.12* ]]
 }
+
+# 委譲先スクリプトのパスを返す。
+_agmsg_script() {
+  local cmd_name="$1" script="$2"
+  printf '%s/scripts/%s' "$(_agmsg_home "$cmd_name")" "$script"
+}
+
+agmsg_send() {
+  local cmd_name="$1"; shift
+  bash "$(_agmsg_script "$cmd_name" send.sh)" "$@"
+}
+
+agmsg_join() {
+  local cmd_name="$1"; shift
+  bash "$(_agmsg_script "$cmd_name" join.sh)" "$@"
+}
+
+agmsg_set_delivery() {
+  local cmd_name="$1"; shift
+  bash "$(_agmsg_script "$cmd_name" delivery.sh)" "$@"
+}
+
+agmsg_spawn() {
+  local cmd_name="$1"; shift
+  bash "$(_agmsg_script "$cmd_name" spawn.sh)" "$@"
+}
+
+agmsg_despawn() {
+  local cmd_name="$1"; shift
+  bash "$(_agmsg_script "$cmd_name" despawn.sh)" "$@"
+}
+
+agmsg_inbox() {
+  local cmd_name="$1"; shift
+  bash "$(_agmsg_script "$cmd_name" inbox.sh)" "$@"
+}
+
+agmsg_history() {
+  local cmd_name="$1"; shift
+  bash "$(_agmsg_script "$cmd_name" history.sh)" "$@"
+}

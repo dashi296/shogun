@@ -203,6 +203,11 @@ FAKE
   [ -z "$output" ]
 }
 
+@test "agmsg_adapter: agmsg_version_ok propagates agmsg_version's failure on invalid cmd_name (not just 'version mismatch')" {
+  run agmsg_version_ok "bad/name"
+  [ "$status" -eq 2 ]
+}
+
 @test "agmsg_adapter: agmsg_get_placement propagates _agmsg_home's failure on invalid cmd_name" {
   run agmsg_get_placement "bad/name" "team1" "karo"
   [ "$status" -eq 2 ]

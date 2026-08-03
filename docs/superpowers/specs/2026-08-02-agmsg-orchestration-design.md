@@ -79,9 +79,9 @@ Shogun 側に `scripts/agmsg_adapter.sh` を新設し、以下の**固定シグ�
 | Shogun アダプタ関数 | 委譲先 | シグネチャ |
 |---|---|---|
 | `agmsg_send` | `send.sh` | `<team> <from> <to> <message> [--force]` |
-| `agmsg_spawn` | `spawn.sh` | `<type> <name> [--team TEAM] [--project PATH] [--model ID] [--boot-prompt TEXT] [--fresh]` |
+| `agmsg_spawn` | `spawn.sh` | `<type> <name> [--boot-prompt TEXT] [--project PATH] [--team TEAM] [--window] [--split h\|v] [--terminal TMPL] [--no-wait] [--ready-timeout N] [--model ID] [--fresh]` |
 | `agmsg_despawn` | `despawn.sh` | `<team> <from> <name> [--force] [--timeout N]` |
-| `agmsg_join` | `join.sh` | `<team> <agent> <type> <project>` |
+| `agmsg_join` | `join.sh` | `<team> <agent> <type> <project> [--force]` |
 | `agmsg_set_delivery` | `delivery.sh` | `set <mode> <type> <project>` |
 | `agmsg_inbox` | `inbox.sh` | `<team> <agent>` |
 | `agmsg_history` | `history.sh` | `<team> [--limit N]` |

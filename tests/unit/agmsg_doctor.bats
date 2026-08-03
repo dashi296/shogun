@@ -31,3 +31,29 @@ teardown() {
   run bash -c "source '${SHOGUN_REPO}/bin/shogun' 2>/dev/null; read_agmsg_cmd_name '${TEST_CONFIG}'"
   [ "$output" = "agmsg" ]
 }
+
+@test "read_agmsg_cmd_name: does not silently replace an explicit empty string with the default" {
+  cat > "$TEST_CONFIG" <<'YAML'
+project_name: testproj
+agmsg:
+  cmd_name: ""
+YAML
+  run bash -c "source '${SHOGUN_REPO}/bin/shogun' 2>/dev/null; read_agmsg_cmd_name '${TEST_CONFIG}'"
+  [ "$status" -eq 0 ]
+  [ "$output" = "" ]
+}
+
+@test "read_agmsg_cmd_name: an explicit empty string is then rejected by agmsg_cmd_name_valid" {
+  cat > "$TEST_CONFIG" <<'YAML'
+project_name: testproj
+agmsg:
+  cmd_name: ""
+YAML
+  run bash -c "
+    source '${SHOGUN_REPO}/bin/shogun' 2>/dev/null
+    source '${SHOGUN_REPO}/scripts/agmsg_adapter.sh'
+    v=\"\$(read_agmsg_cmd_name '${TEST_CONFIG}')\"
+    agmsg_cmd_name_valid \"\$v\"
+  "
+  [ "$status" -eq 1 ]
+}

@@ -94,7 +94,8 @@ read_agmsg_cmd_name() {
   node_yaml -e '
 const yaml = require("js-yaml");
 const d = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
-process.stdout.write(String((d.agmsg && d.agmsg.cmd_name) || "agmsg"));
+const raw = d.agmsg && d.agmsg.cmd_name;
+process.stdout.write(raw === undefined || raw === null ? "agmsg" : String(raw));
 ' -- "$config"
 }
 

@@ -41,6 +41,9 @@ require_init() {
 # ─── node / js-yaml ユーティリティ ────────────────────────
 NODE_PATH_ARG="${SHOGUN_BIN_DIR}/node_modules"
 
+# shellcheck source=scripts/agmsg_adapter.sh
+source "${SHOGUN_BIN_DIR}/scripts/agmsg_adapter.sh"
+
 node_yaml() {
   NODE_PATH="${NODE_PATH_ARG}" node "$@"
 }
@@ -1206,6 +1209,28 @@ cmd_doctor() {
     echo -e "       macOS: brew install fswatch"
     echo -e "       Linux: sudo apt install inotify-tools"
     ok=false
+  fi
+
+  # agmsg
+  echo ""
+  echo -e "${BOLD}[ agmsg ]${RESET}"
+  local _agmsg_cmd_name="agmsg"
+  if SHOGUN_ROOT="$(find_shogun_root 2>/dev/null)" && [[ -f "${SHOGUN_ROOT}/.shogun/config.yaml" ]]; then
+    _agmsg_cmd_name="$(read_agmsg_cmd_name "${SHOGUN_ROOT}/.shogun/config.yaml")"
+  fi
+  local _agmsg_home_dir
+  _agmsg_home_dir="$(_agmsg_home "$_agmsg_cmd_name")"
+  if [[ -d "${_agmsg_home_dir}/scripts" ]]; then
+    local _agmsg_ver
+    _agmsg_ver="$(agmsg_version "$_agmsg_cmd_name")"
+    if agmsg_version_ok "$_agmsg_cmd_name"; then
+      echo -e "  ${GREEN}✓${RESET} agmsg (${_agmsg_ver})"
+    else
+      echo -e "  ${YELLOW}!${RESET} agmsg バージョンが想定外です (${_agmsg_ver})"
+      echo -e "       想定: v1.1.12 系（commit 1c7efbc005c...）"
+    fi
+  else
+    echo -e "  ${RED}✗${RESET} agmsg が見つかりません → npx agmsg でインストール"
   fi
 
   echo ""

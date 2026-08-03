@@ -36,7 +36,7 @@ agmsg_version_ok() {
   local cmd_name="${1:?cmd_name required}"
   local version
   version="$(agmsg_version "$cmd_name")"
-  [[ "$version" == "v1.1.12" || "$version" == v1.1.12-* ]]
+  [[ "$version" =~ ^v1\.1\.12(-[0-9]+-g[0-9a-f]+)?(-dirty)?$ ]]
 }
 
 # 委譲先スクリプトのパスを返す。

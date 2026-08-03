@@ -83,6 +83,24 @@ teardown() {
   [ "$status" -eq 1 ]
 }
 
+@test "agmsg_adapter: agmsg_version_ok rejects a non-git-describe suffix" {
+  echo "v1.1.12-foo" > "${AGMSG_TEST_HOME}/VERSION"
+  run agmsg_version_ok "mycmd"
+  [ "$status" -eq 1 ]
+}
+
+@test "agmsg_adapter: agmsg_version_ok rejects a bare trailing dash" {
+  echo "v1.1.12-" > "${AGMSG_TEST_HOME}/VERSION"
+  run agmsg_version_ok "mycmd"
+  [ "$status" -eq 1 ]
+}
+
+@test "agmsg_adapter: agmsg_version_ok succeeds for v1.1.12-N-g<sha>-dirty variant" {
+  echo "v1.1.12-3-g1c7efbc-dirty" > "${AGMSG_TEST_HOME}/VERSION"
+  run agmsg_version_ok "mycmd"
+  [ "$status" -eq 0 ]
+}
+
 # --- pass-through wrapper functions ---
 # 各委譲先スクリプトを fake 実装に差し替え、渡された引数をそのまま echo する。
 

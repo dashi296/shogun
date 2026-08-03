@@ -189,7 +189,8 @@ boot prompt（`/<cmd> actas <name>` を自動実行する仕組み）を通ら�
 
 1. Taisho 用の古い ready sentinel（前回実行の残骸）を起動前に削除する。
 2. `agmsg_join <team> taisho <type> <project>` を実行する。
-3. `agmsg_set_delivery <team> monitor <type> <project>` で配信モードを設定する。
+3. `agmsg_set_delivery set monitor <type> <project>` で配信モードを設定する
+   （§3 の固定シグネチャ `set <mode> <type> <project>` に従う。`team` 引数はない）。
 4. Taisho の `claude` 起動時、初期プロンプトとして
    `/<cmd> actas taisho` を実行させる（Taisho 用の boot prompt に含める）。
    これにより Taisho のセッションが exclusive watcher として確立される。
@@ -281,7 +282,7 @@ agmsg は配送 ACK 付きキューではない。mcp-queue を廃止する代�
   "protocol_version": 1,
   "run_id": "<shogun start ごとの UUID>",
   "task_id": "<UUID、run を跨いで再利用しない>",
-  "type": "assign | accepted | started | result | ack | reject | failed",
+  "type": "assign | accepted | started | result | ack | reject | failed | status_query",
   "from": "karo",
   "to": "ashigaru1",
   "attempt": 1,
@@ -307,7 +308,10 @@ pending → assigned → accepted → in_progress → done → acked
 
 - `accepted` 後、Karo は **result deadline**（役職・タスク種別ごとに設定可能な
   タイムアウト）を設定する。deadline 超過時、Karo は同じ `task_id` で
-  状態照会メッセージ（`type: "status_query"` 相当）を送る。
+  `status_query`（envelope の正式な `type` の一つ）を送る。
+- worker は `status_query` を受信したら、その時点の状態
+  （`in_progress`/`done`/`failed`）、および `done` であれば既存の `result` を
+  即座に返す（新しい `result` を生成し直さない）。
 - **worker は `result` を送信後、Karo からの `ack` を受け取るまで
   `result` を定期的に再送する**（一定間隔、上限回数）。
 - **worker は `ack` を確認するまで despawn しない**

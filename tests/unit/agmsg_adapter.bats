@@ -73,6 +73,15 @@ teardown() {
   [ "$output" = "unknown" ]
 }
 
+@test "agmsg_adapter: agmsg_version returns 'unknown' (not a failure) when VERSION exists but is unreadable" {
+  echo "v1.1.12" > "${AGMSG_TEST_HOME}/VERSION"
+  chmod 000 "${AGMSG_TEST_HOME}/VERSION"
+  run agmsg_version "mycmd"
+  chmod 644 "${AGMSG_TEST_HOME}/VERSION"
+  [ "$status" -eq 0 ]
+  [ "$output" = "unknown" ]
+}
+
 @test "agmsg_adapter: agmsg_version trims only leading/trailing whitespace, not internal" {
   printf '  v1.1.12  \n' > "${AGMSG_TEST_HOME}/VERSION"
   run agmsg_version "mycmd"

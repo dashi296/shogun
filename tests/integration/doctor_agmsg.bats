@@ -58,3 +58,13 @@ fs.writeFileSync(file, yaml.dump(d, {allowUnicode: true}));
   [[ "$output" == *"[ agmsg ]"* ]]
   [[ "$output" == *"[ .shogun/ ]"* ]]
 }
+
+@test "doctor: does not abort when VERSION exists but is unreadable (broken install)" {
+  mkdir -p "${AGMSG_TEST_HOME}/scripts"
+  echo "v1.1.12" > "${AGMSG_TEST_HOME}/VERSION"
+  chmod 000 "${AGMSG_TEST_HOME}/VERSION"
+  run shogun doctor
+  chmod 644 "${AGMSG_TEST_HOME}/VERSION"
+  [[ "$output" == *"[ agmsg ]"* ]]
+  [[ "$output" == *"[ .shogun/ ]"* ]]
+}

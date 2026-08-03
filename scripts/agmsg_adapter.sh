@@ -32,8 +32,9 @@ agmsg_version() {
   local home
   home="$(_agmsg_home "$cmd_name")" || return $?
   local version_file="${home}/VERSION"
-  if [[ -f "$version_file" ]]; then
-    head -n 1 "$version_file" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+  local raw
+  if [[ -f "$version_file" ]] && raw="$(head -n 1 "$version_file" 2>/dev/null)"; then
+    printf '%s' "$raw" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
   else
     echo "unknown"
   fi

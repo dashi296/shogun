@@ -88,6 +88,17 @@ process.stdout.write(String(d.project_name || "shogun"));
 ' -- "$config"
 }
 
+# config.yaml から agmsg.cmd_name を取得（デフォルト agmsg）
+read_agmsg_cmd_name() {
+  local config="$1"
+  node_yaml -e '
+const yaml = require("js-yaml");
+const d = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
+const raw = d.agmsg && d.agmsg.cmd_name;
+process.stdout.write(raw === undefined || raw === null ? "agmsg" : String(raw));
+' -- "$config"
+}
+
 # project_name を tmux セッション名に使える safe_name に変換
 project_safe_name() {
   local project_name="$1"
@@ -1196,6 +1207,30 @@ cmd_doctor() {
     echo -e "       macOS: brew install fswatch"
     echo -e "       Linux: sudo apt install inotify-tools"
     ok=false
+  fi
+
+  # agmsg
+  echo ""
+  echo -e "${BOLD}[ agmsg ]${RESET}"
+  # shellcheck source=scripts/agmsg_adapter.sh
+  source "${SHOGUN_BIN_DIR}/scripts/agmsg_adapter.sh"
+  local _agmsg_cmd_name="agmsg"
+  if SHOGUN_ROOT="$(find_shogun_root 2>/dev/null)" && [[ -f "${SHOGUN_ROOT}/.shogun/config.yaml" ]]; then
+    _agmsg_cmd_name="$(read_agmsg_cmd_name "${SHOGUN_ROOT}/.shogun/config.yaml")" || _agmsg_cmd_name="agmsg"
+  fi
+  if ! agmsg_cmd_name_valid "$_agmsg_cmd_name"; then
+    echo -e "  ${YELLOW}!${RESET} agmsg.cmd_name が不正です: ${_agmsg_cmd_name}（英数字・_・-のみ使用可）"
+  elif agmsg_installed "$_agmsg_cmd_name"; then
+    local _agmsg_ver
+    _agmsg_ver="$(agmsg_version "$_agmsg_cmd_name")"
+    if agmsg_version_string_ok "$_agmsg_ver"; then
+      echo -e "  ${GREEN}✓${RESET} agmsg (${_agmsg_ver})"
+    else
+      echo -e "  ${YELLOW}!${RESET} agmsg バージョンが想定外です (${_agmsg_ver})"
+      echo -e "       想定: v1.1.12 系（commit 1c7efbc005c...）"
+    fi
+  else
+    echo -e "  ${YELLOW}!${RESET} agmsg が見つかりません（任意）→ npx agmsg でインストール"
   fi
 
   echo ""

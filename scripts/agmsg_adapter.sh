@@ -7,11 +7,18 @@
 #
 # このファイルは source して使う（実行しない）。
 
+# cmd_name が agmsg の命名規約（英数字・_・- のみ）に沿っているか判定する。
+# この文字集合は agmsg 内部の percent-encoding の対象にならないため、
+# 検証を通った cmd_name は他の関数（_agmsg_home 等）で直接パスに組み込んでよい。
+agmsg_cmd_name_valid() {
+  [[ "${1:-}" =~ ^[A-Za-z0-9_-]+$ ]]
+}
+
 # agmsg のインストール先ディレクトリを返す。
 # AGMSG_HOME_OVERRIDE が設定されていればそれを優先する（テスト用フック）。
 _agmsg_home() {
   local cmd_name="${1:?cmd_name required}"
-  [[ "$cmd_name" =~ ^[A-Za-z0-9_-]+$ ]] || return 2
+  agmsg_cmd_name_valid "$cmd_name" || return 2
   if [[ -n "${AGMSG_HOME_OVERRIDE:-}" ]]; then
     printf '%s' "${AGMSG_HOME_OVERRIDE}"
   else
@@ -32,12 +39,20 @@ agmsg_version() {
   fi
 }
 
+# バージョン文字列が対応バージョン（v1.1.12 系の git-describe 形式）か判定する
+# 純粋関数（I/O なし）。既に agmsg_version 等でバージョン文字列を取得済みの
+# 呼び出し元は、再度 agmsg_version_ok を呼んで VERSION ファイルを読み直すのではなく
+# こちらへ直接渡すことで、ファイル読み取り・_agmsg_home の再評価を避けられる。
+_agmsg_version_string_ok() {
+  [[ "$1" =~ ^v1\.1\.12(-[0-9]+-g[0-9a-f]+)?(-dirty)?$ ]]
+}
+
 # 対応バージョン（v1.1.12 系）であれば exit 0、それ以外は exit 1。
 agmsg_version_ok() {
   local cmd_name="${1:?cmd_name required}"
   local version
   version="$(agmsg_version "$cmd_name")" || return $?
-  [[ "$version" =~ ^v1\.1\.12(-[0-9]+-g[0-9a-f]+)?(-dirty)?$ ]]
+  _agmsg_version_string_ok "$version"
 }
 
 # 委譲先スクリプトのパスを返す。
@@ -48,54 +63,22 @@ _agmsg_script() {
   printf '%s/scripts/%s' "$home" "$script"
 }
 
-agmsg_send() {
-  local cmd_name="$1"; shift
+# cmd_name を検証し、agmsg の <script_name> へ委譲する共通処理。
+# 7つの agmsg_* パススルー関数は、委譲先スクリプト名だけが異なる薄いラッパー。
+_agmsg_dispatch() {
+  local cmd_name="$1" script_name="$2"; shift 2
   local script
-  script="$(_agmsg_script "$cmd_name" send.sh)" || return $?
+  script="$(_agmsg_script "$cmd_name" "$script_name")" || return $?
   bash "$script" "$@"
 }
 
-agmsg_join() {
-  local cmd_name="$1"; shift
-  local script
-  script="$(_agmsg_script "$cmd_name" join.sh)" || return $?
-  bash "$script" "$@"
-}
-
-agmsg_set_delivery() {
-  local cmd_name="$1"; shift
-  local script
-  script="$(_agmsg_script "$cmd_name" delivery.sh)" || return $?
-  bash "$script" "$@"
-}
-
-agmsg_spawn() {
-  local cmd_name="$1"; shift
-  local script
-  script="$(_agmsg_script "$cmd_name" spawn.sh)" || return $?
-  bash "$script" "$@"
-}
-
-agmsg_despawn() {
-  local cmd_name="$1"; shift
-  local script
-  script="$(_agmsg_script "$cmd_name" despawn.sh)" || return $?
-  bash "$script" "$@"
-}
-
-agmsg_inbox() {
-  local cmd_name="$1"; shift
-  local script
-  script="$(_agmsg_script "$cmd_name" inbox.sh)" || return $?
-  bash "$script" "$@"
-}
-
-agmsg_history() {
-  local cmd_name="$1"; shift
-  local script
-  script="$(_agmsg_script "$cmd_name" history.sh)" || return $?
-  bash "$script" "$@"
-}
+agmsg_send()         { _agmsg_dispatch "$1" send.sh     "${@:2}"; }
+agmsg_join()          { _agmsg_dispatch "$1" join.sh      "${@:2}"; }
+agmsg_set_delivery()  { _agmsg_dispatch "$1" delivery.sh  "${@:2}"; }
+agmsg_spawn()         { _agmsg_dispatch "$1" spawn.sh     "${@:2}"; }
+agmsg_despawn()       { _agmsg_dispatch "$1" despawn.sh   "${@:2}"; }
+agmsg_inbox()         { _agmsg_dispatch "$1" inbox.sh     "${@:2}"; }
+agmsg_history()       { _agmsg_dispatch "$1" history.sh   "${@:2}"; }
 
 # agmsg の spawn が記録する placement record（team/agent の tmux 配置先）を読む。
 # team/agent は ^[A-Za-z0-9_-]+$ のみ許可する（この文字集合は agmsg 内部の

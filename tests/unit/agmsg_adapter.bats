@@ -13,6 +13,26 @@ teardown() {
   rm -rf "${AGMSG_TEST_HOME}"
 }
 
+@test "agmsg_adapter: agmsg_cmd_name_valid accepts alphanumeric/underscore/hyphen names" {
+  run agmsg_cmd_name_valid "my-cmd_1"
+  [ "$status" -eq 0 ]
+}
+
+@test "agmsg_adapter: agmsg_cmd_name_valid rejects path traversal characters" {
+  run agmsg_cmd_name_valid "../../../../tmp/evil"
+  [ "$status" -eq 1 ]
+}
+
+@test "agmsg_adapter: agmsg_cmd_name_valid rejects a slash" {
+  run agmsg_cmd_name_valid "foo/bar"
+  [ "$status" -eq 1 ]
+}
+
+@test "agmsg_adapter: agmsg_cmd_name_valid rejects an empty string" {
+  run agmsg_cmd_name_valid ""
+  [ "$status" -eq 1 ]
+}
+
 @test "agmsg_adapter: _agmsg_home honors AGMSG_HOME_OVERRIDE" {
   run _agmsg_home "mycmd"
   [ "$status" -eq 0 ]
@@ -232,37 +252,13 @@ FAKE
   [ -z "$output" ]
 }
 
-@test "agmsg_adapter: agmsg_send propagates cmd_name validation failure without invoking anything" {
-  run agmsg_send "bad/name" team1 karo taisho msg
-  [ "$status" -eq 2 ]
-}
-
-@test "agmsg_adapter: agmsg_join propagates cmd_name validation failure without invoking anything" {
-  run agmsg_join "bad/name" team1 taisho claude-code /proj
-  [ "$status" -eq 2 ]
-}
-
-@test "agmsg_adapter: agmsg_set_delivery propagates cmd_name validation failure without invoking anything" {
-  run agmsg_set_delivery "bad/name" set monitor claude-code /proj
-  [ "$status" -eq 2 ]
-}
-
-@test "agmsg_adapter: agmsg_spawn propagates cmd_name validation failure without invoking anything" {
-  run agmsg_spawn "bad/name" claude-code karo
-  [ "$status" -eq 2 ]
-}
-
-@test "agmsg_adapter: agmsg_despawn propagates cmd_name validation failure without invoking anything" {
-  run agmsg_despawn "bad/name" team1 karo ashigaru1
-  [ "$status" -eq 2 ]
-}
-
-@test "agmsg_adapter: agmsg_inbox propagates cmd_name validation failure without invoking anything" {
-  run agmsg_inbox "bad/name" team1 karo
-  [ "$status" -eq 2 ]
-}
-
-@test "agmsg_adapter: agmsg_history propagates cmd_name validation failure without invoking anything" {
-  run agmsg_history "bad/name" team1
-  [ "$status" -eq 2 ]
+@test "agmsg_adapter: every pass-through wrapper propagates cmd_name validation failure without invoking anything" {
+  local fn
+  for fn in agmsg_send agmsg_join agmsg_set_delivery agmsg_spawn agmsg_despawn agmsg_inbox agmsg_history; do
+    run "$fn" "bad/name" arg1 arg2
+    [ "$status" -eq 2 ] || {
+      echo "fn=$fn status=$status output=$output" >&2
+      return 1
+    }
+  done
 }

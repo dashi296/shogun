@@ -6,6 +6,9 @@ agents:
   taisho_model: opus       # 大将のモデル (opus/sonnet)
   worker_model: sonnet     # 足軽・軍師・目付のモデル
 
+agmsg:
+  cmd_name: agmsg           # agmsg のインストールコマンド名（複数 <cmd> がある環境向け）
+
 # Bloom's Taxonomy に基づくエージェントルーティング基準
 # L1: 記憶 / L2: 理解 / L3: 適用 / L4: 分析 / L5: 評価 / L6: 創造
 capability_tiers:

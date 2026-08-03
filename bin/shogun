@@ -88,6 +88,16 @@ process.stdout.write(String(d.project_name || "shogun"));
 ' -- "$config"
 }
 
+# config.yaml から agmsg.cmd_name を取得（デフォルト agmsg）
+read_agmsg_cmd_name() {
+  local config="$1"
+  node_yaml -e '
+const yaml = require("js-yaml");
+const d = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
+process.stdout.write(String((d.agmsg && d.agmsg.cmd_name) || "agmsg"));
+' -- "$config"
+}
+
 # project_name を tmux セッション名に使える safe_name に変換
 project_safe_name() {
   local project_name="$1"
@@ -1442,6 +1452,11 @@ cmd_help() {
 # ════════════════════════════════════════════════════════════
 # source されている場合はディスパッチをスキップ（テストから関数を直接呼び出せるようにする）
 [[ "${BASH_SOURCE[0]}" != "${0}" ]] && return 0
+
+# テストから関数定義だけを source するためのガード（本体のディスパッチを実行しない）
+if [[ "${1:-}" == "--lib-only" ]]; then
+  return 0 2>/dev/null || exit 0
+fi
 
 COMMAND="${1:-help}"
 shift 2>/dev/null || true

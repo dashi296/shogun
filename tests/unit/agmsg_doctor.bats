@@ -21,13 +21,13 @@ teardown() {
 }
 
 @test "read_agmsg_cmd_name: returns configured cmd_name" {
-  run bash -c "source '${SHOGUN_REPO}/bin/shogun' --lib-only 2>/dev/null; read_agmsg_cmd_name '${TEST_CONFIG}'"
+  run bash -c "source '${SHOGUN_REPO}/bin/shogun' 2>/dev/null; read_agmsg_cmd_name '${TEST_CONFIG}'"
   [ "$status" -eq 0 ]
   [ "$output" = "mycmd" ]
 }
 
 @test "read_agmsg_cmd_name: defaults to 'agmsg' when unset" {
   echo "project_name: testproj" > "$TEST_CONFIG"
-  run bash -c "source '${SHOGUN_REPO}/bin/shogun' --lib-only 2>/dev/null; read_agmsg_cmd_name '${TEST_CONFIG}'"
+  run bash -c "source '${SHOGUN_REPO}/bin/shogun' 2>/dev/null; read_agmsg_cmd_name '${TEST_CONFIG}'"
   [ "$output" = "agmsg" ]
 }

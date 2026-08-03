@@ -1453,11 +1453,6 @@ cmd_help() {
 # source されている場合はディスパッチをスキップ（テストから関数を直接呼び出せるようにする）
 [[ "${BASH_SOURCE[0]}" != "${0}" ]] && return 0
 
-# テストから関数定義だけを source するためのガード（本体のディスパッチを実行しない）
-if [[ "${1:-}" == "--lib-only" ]]; then
-  return 0 2>/dev/null || exit 0
-fi
-
 COMMAND="${1:-help}"
 shift 2>/dev/null || true
 

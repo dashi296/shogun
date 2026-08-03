@@ -33,3 +33,21 @@ teardown() {
   run shogun doctor
   [[ "$output" == *"想定外"* ]]
 }
+
+@test "doctor: warns (does not abort) when agmsg.cmd_name is invalid" {
+  node_yaml() {
+    NODE_PATH="${SHOGUN_REPO}/node_modules" node "$@"
+  }
+  node_yaml -e '
+const fs = require("fs");
+const yaml = require("js-yaml");
+const file = ".shogun/config.yaml";
+const d = yaml.load(fs.readFileSync(file, "utf8")) || {};
+d.agmsg = d.agmsg || {};
+d.agmsg.cmd_name = "bad name";
+fs.writeFileSync(file, yaml.dump(d, {allowUnicode: true}));
+'
+  run shogun doctor
+  [[ "$output" == *"agmsg.cmd_name が不正です"* ]]
+  [[ "$output" == *"[ .shogun/ ]"* ]]
+}

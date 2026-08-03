@@ -19,6 +19,27 @@ teardown() {
   [ "$output" = "${AGMSG_TEST_HOME}" ]
 }
 
+@test "agmsg_adapter: _agmsg_home rejects a cmd_name with path traversal characters" {
+  run _agmsg_home "../../../../tmp/evil"
+  [ "$status" -eq 2 ]
+}
+
+@test "agmsg_adapter: _agmsg_home rejects a cmd_name with a slash" {
+  run _agmsg_home "foo/bar"
+  [ "$status" -eq 2 ]
+}
+
+@test "agmsg_adapter: _agmsg_home uses HOME when AGMSG_HOME_OVERRIDE is unset" {
+  unset AGMSG_HOME_OVERRIDE
+  # HOME=... を "source ...; _agmsg_home" の外側の env に渡す必要がある。
+  # bash -c 文字列の中で HOME=... source ... と書いても、次のコマンド（_agmsg_home）には
+  # 引き継がれない（source は POSIX の特殊組込みではないため、非対話シェルでは
+  # 一時環境の代入がコマンド終了後も残らない）。そのため env でプロセス全体の HOME を差し替える。
+  run env HOME=/tmp/fake-home bash -c "source '${SHOGUN_REPO}/scripts/agmsg_adapter.sh'; _agmsg_home mycmd"
+  [ "$status" -eq 0 ]
+  [ "$output" = "/tmp/fake-home/.agents/skills/mycmd" ]
+}
+
 @test "agmsg_adapter: agmsg_version reads the VERSION file" {
   echo "v1.1.12-3-g1c7efbc" > "${AGMSG_TEST_HOME}/VERSION"
   run agmsg_version "mycmd"
@@ -46,6 +67,18 @@ teardown() {
 
 @test "agmsg_adapter: agmsg_version_ok fails for a mismatched version" {
   echo "v2.0.0" > "${AGMSG_TEST_HOME}/VERSION"
+  run agmsg_version_ok "mycmd"
+  [ "$status" -eq 1 ]
+}
+
+@test "agmsg_adapter: agmsg_version_ok rejects a version with an unrelated numeric suffix" {
+  echo "v1.1.120" > "${AGMSG_TEST_HOME}/VERSION"
+  run agmsg_version_ok "mycmd"
+  [ "$status" -eq 1 ]
+}
+
+@test "agmsg_adapter: agmsg_version_ok rejects a version with a trailing letter" {
+  echo "v1.1.12x" > "${AGMSG_TEST_HOME}/VERSION"
   run agmsg_version_ok "mycmd"
   [ "$status" -eq 1 ]
 }

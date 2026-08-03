@@ -17,8 +17,7 @@ teardown() {
 
 @test "doctor: reports agmsg as missing when not installed" {
   run shogun doctor
-  [[ "$output" == *"agmsg"* ]]
-  [[ "$output" == *"見つかりません"* ]]
+  [[ "$output" == *"agmsg が見つかりません"* ]]
 }
 
 @test "doctor: reports agmsg version when installed and matching" {

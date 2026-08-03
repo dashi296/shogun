@@ -6,12 +6,12 @@
 # 薄いラッパー関数を提供する（対応 commit: 1c7efbc005c50a7eb3cbd4bac9b1f6ab17825827）。
 #
 # このファイルは source して使う（実行しない）。
-set -euo pipefail
 
 # agmsg のインストール先ディレクトリを返す。
 # AGMSG_HOME_OVERRIDE が設定されていればそれを優先する（テスト用フック）。
 _agmsg_home() {
   local cmd_name="${1:?cmd_name required}"
+  [[ "$cmd_name" =~ ^[A-Za-z0-9_-]+$ ]] || return 2
   if [[ -n "${AGMSG_HOME_OVERRIDE:-}" ]]; then
     printf '%s' "${AGMSG_HOME_OVERRIDE}"
   else
@@ -19,13 +19,13 @@ _agmsg_home() {
   fi
 }
 
-# インストール済み agmsg のバージョン（VERSION ファイルの内容）を返す。
+# インストール済み agmsg のバージョン（VERSION ファイルの最初の行を trim したもの）を返す。
 agmsg_version() {
   local cmd_name="${1:?cmd_name required}"
   local version_file
   version_file="$(_agmsg_home "$cmd_name")/VERSION"
   if [[ -f "$version_file" ]]; then
-    cat "$version_file"
+    head -n 1 "$version_file" | tr -d '[:space:]'
   else
     echo "unknown"
   fi
@@ -36,7 +36,7 @@ agmsg_version_ok() {
   local cmd_name="${1:?cmd_name required}"
   local version
   version="$(agmsg_version "$cmd_name")"
-  [[ "$version" == v1.1.12* ]]
+  [[ "$version" == "v1.1.12" || "$version" == v1.1.12-* ]]
 }
 
 # 委譲先スクリプトのパスを返す。

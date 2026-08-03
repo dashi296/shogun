@@ -24,7 +24,13 @@ spawn 時に agmsg が記録する placement record（tmux pane/window ID の記
 - 役職名・team 名・agent 名は `^[A-Za-z0-9_-]+$` でバリデーションする
   （CLAUDE.md のパストラバーサル防止規約に従う。この制約により、agmsg 内部の
   percent-encoding を経由せずファイルパスを直接組み立てられる — 詳細は Task 3 参照）。
-- 全スクリプトは `#!/usr/bin/env bash` + `set -euo pipefail` を先頭に置く。
+- `cmd_name`（`.shogun/config.yaml` 由来。ユーザーのリポジトリにコミットされ得る値）も
+  同様に `^[A-Za-z0-9_-]+$` でバリデーションする対象である
+  （`_agmsg_home` の先頭で検証し、不一致なら `return 2` する — レビュー・fix round 1 で対応）。
+- エントリポイントスクリプト（`bin/shogun`、直接実行されるスクリプト）は
+  `#!/usr/bin/env bash` + `set -euo pipefail` を先頭に置く。source 専用ライブラリ
+  （`scripts/flag_names.sh`・`scripts/agmsg_adapter.sh` 等）は `set` 行を持たず、
+  呼び出し元のシェルオプションに委ねる。
 - テストは `tests/unit/` に bats で追加し、既存の `tests/test_helper.bash` を
   `load '../test_helper'` する。
 
@@ -486,19 +492,12 @@ Expected: FAIL — `bin/shogun` does not support `--lib-only` yet, and
 
 - [ ] **Step 3: Write minimal implementation**
 
-`bin/shogun` は現在、ファイル末尾の `case "$COMMAND" in ... esac` で
-即座にサブコマンドを実行する構造になっている（関数定義だけを読み込むモードがない）。
-テストから関数だけを安全に source できるよう、末尾のディスパッチ部分をガードする。
-
-`bin/shogun` の一番下（`case "$COMMAND" in` の直前）に、以下のガードを追加する
-（`bin/shogun:1618` 付近、`COMMAND="${1:-}"` の行の直前を探して追加すること）:
-
-```bash
-# テストから関数定義だけを source するためのガード（本体のディスパッチを実行しない）
-if [[ "${1:-}" == "--lib-only" ]]; then
-  return 0 2>/dev/null || exit 0
-fi
-```
+（注記: 当初はここに `--lib-only` ガードを追加する計画だったが、実装時に
+`bin/shogun` には既に `[[ "${BASH_SOURCE[0]}" != "${0}" ]] && return 0` という
+source ガードが存在することが判明した。source されると（`BASH_SOURCE` と `$0` が
+異なるため）このガードで末尾のディスパッチ部分の実行が止まり、関数定義だけを
+安全に読み込める。そのため `--lib-only` ガードは不要と判断し削除した
+（レビュー・fix round 1で対応）。）
 
 `read_project_name` の直後に、以下を追加する:
 

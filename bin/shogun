@@ -1230,7 +1230,7 @@ cmd_doctor() {
       echo -e "       想定: v1.1.12 系（commit 1c7efbc005c...）"
     fi
   else
-    echo -e "  ${RED}✗${RESET} agmsg が見つかりません → npx agmsg でインストール"
+    echo -e "  ${YELLOW}!${RESET} agmsg が見つかりません（任意）→ npx agmsg でインストール"
   fi
 
   echo ""

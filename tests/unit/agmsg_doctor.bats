@@ -4,8 +4,8 @@
 load '../test_helper'
 
 setup() {
-  # bin/shogun 内のヘルパー関数だけを取り出して source する。
-  # cmd_* のディスパッチ（case文）は実行させないため、関数定義部分までを抽出する。
+  # bin/shogun は source されると（BASH_SOURCE と $0 が異なるため）既存のガードで
+  # ディスパッチ部分（case文）の実行を止める。これを利用してヘルパー関数だけを読み込む。
   TEST_CONFIG="$(mktemp)"
   cat > "$TEST_CONFIG" <<'YAML'
 project_name: testproj

@@ -105,3 +105,32 @@ FAKE
   run agmsg_history "mycmd" team1 --limit 20
   [ "$output" = "history.sh team1 --limit 20" ]
 }
+
+# --- placement record accessor ---
+
+@test "agmsg_adapter: agmsg_get_placement reads an existing record" {
+  mkdir -p "${AGMSG_TEST_HOME}/run"
+  printf '%%3\t/proj\tclaude-code\n' > "${AGMSG_TEST_HOME}/run/spawn.team1__karo"
+  run agmsg_get_placement "mycmd" "team1" "karo"
+  [ "$status" -eq 0 ]
+  IFS=$'\t' read -r id project type <<< "$output"
+  [ "$id" = "%3" ]
+  [ "$project" = "/proj" ]
+  [ "$type" = "claude-code" ]
+}
+
+@test "agmsg_adapter: agmsg_get_placement fails when no record exists" {
+  run agmsg_get_placement "mycmd" "team1" "karo"
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+}
+
+@test "agmsg_adapter: agmsg_get_placement rejects an invalid team name" {
+  run agmsg_get_placement "mycmd" "team one" "karo"
+  [ "$status" -eq 2 ]
+}
+
+@test "agmsg_adapter: agmsg_get_placement rejects an invalid agent name" {
+  run agmsg_get_placement "mycmd" "team1" "../evil"
+  [ "$status" -eq 2 ]
+}

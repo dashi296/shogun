@@ -79,3 +79,17 @@ agmsg_history() {
   local cmd_name="$1"; shift
   bash "$(_agmsg_script "$cmd_name" history.sh)" "$@"
 }
+
+# agmsg の spawn が記録する placement record（team/agent の tmux 配置先）を読む。
+# team/agent は ^[A-Za-z0-9_-]+$ のみ許可する（この文字集合は agmsg 内部の
+# percent-encoding の対象にならないため、直接パスを組み立てられる）。
+agmsg_get_placement() {
+  local cmd_name="$1" team="$2" agent="$3"
+  [[ "$team" =~ ^[A-Za-z0-9_-]+$ ]] || return 2
+  [[ "$agent" =~ ^[A-Za-z0-9_-]+$ ]] || return 2
+
+  local record_file
+  record_file="$(_agmsg_home "$cmd_name")/run/spawn.${team}__${agent}"
+  [[ -f "$record_file" ]] || return 1
+  cat "$record_file"
+}

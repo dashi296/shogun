@@ -53,6 +53,24 @@ teardown() {
   [ "$output" = "unknown" ]
 }
 
+@test "agmsg_adapter: agmsg_version trims only leading/trailing whitespace, not internal" {
+  printf '  v1.1.12  \n' > "${AGMSG_TEST_HOME}/VERSION"
+  run agmsg_version "mycmd"
+  [ "$output" = "v1.1.12" ]
+}
+
+@test "agmsg_adapter: agmsg_version preserves a corrupted internal space (does not silently repair it)" {
+  printf 'v1.1. 12\n' > "${AGMSG_TEST_HOME}/VERSION"
+  run agmsg_version "mycmd"
+  [ "$output" = "v1.1. 12" ]
+}
+
+@test "agmsg_adapter: agmsg_version_ok rejects a version with an internal space" {
+  printf 'v1.1. 12\n' > "${AGMSG_TEST_HOME}/VERSION"
+  run agmsg_version_ok "mycmd"
+  [ "$status" -eq 1 ]
+}
+
 @test "agmsg_adapter: agmsg_version_ok succeeds for v1.1.12 prefix" {
   echo "v1.1.12" > "${AGMSG_TEST_HOME}/VERSION"
   run agmsg_version_ok "mycmd"

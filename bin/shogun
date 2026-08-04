@@ -817,6 +817,88 @@ cmd_attach() {
 }
 
 # ════════════════════════════════════════════════════════════
+# shogun spawn <role> [--boot-prompt TEXT]
+# ════════════════════════════════════════════════════════════
+cmd_spawn() {
+  require_init
+
+  local role="${1:-}"
+  shift || true
+  local boot_prompt=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --boot-prompt)
+        boot_prompt="${2:?--boot-prompt には値が必要です}"
+        shift 2
+        ;;
+      *)
+        error "不明なオプション: $1"
+        exit 1
+        ;;
+    esac
+  done
+
+  if ! [[ "$role" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    error "不正な role: ${role}"
+    exit 1
+  fi
+
+  # shellcheck source=scripts/agmsg_adapter.sh
+  source "${SHOGUN_FAKE_AGMSG_ADAPTER:-${SHOGUN_BIN_DIR}/scripts/agmsg_adapter.sh}"
+  # shellcheck source=scripts/agmsg_run_state.sh
+  source "${SHOGUN_BIN_DIR}/scripts/agmsg_run_state.sh"
+
+  local config_file="${SHOGUN_ROOT}/.shogun/config.yaml"
+  local worker_model
+  worker_model=$(node_yaml -e '
+const yaml = require("js-yaml");
+const d = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
+process.stdout.write(String((d.agents && d.agents.worker_model) || "sonnet"));
+' -- "$config_file")
+
+  local project_name
+  project_name="$(read_project_name "$config_file")"
+  local _agmsg_cmd_name _agmsg_team
+  _agmsg_cmd_name="$(read_agmsg_cmd_name "$config_file")"
+  _agmsg_team="$(project_agmsg_team_name "$project_name" "$SHOGUN_ROOT")"
+
+  local -a spawn_args=(claude-code "$role" --model "$worker_model")
+  if [[ "$role" == "karo" ]]; then
+    spawn_args+=(--window)
+  fi
+  if [[ -n "$boot_prompt" ]]; then
+    spawn_args+=(--boot-prompt "$boot_prompt")
+  fi
+  if agmsg_run_state_fresh_needed "$role"; then
+    spawn_args+=(--fresh)
+  fi
+
+  if ! agmsg_spawn "$_agmsg_cmd_name" "${spawn_args[@]}"; then
+    error "spawn に失敗しました: ${role}"
+    exit 1
+  fi
+
+  agmsg_run_state_mark_fresh_done "$role"
+
+  # placement record からペインラベルを引き継ぐ（取得できなくても致命的ではない）
+  local placement
+  if placement="$(agmsg_get_placement "$_agmsg_cmd_name" "$_agmsg_team" "$role" 2>/dev/null)"; then
+    local pane_id
+    pane_id="$(printf '%s' "$placement" | cut -f1)"
+    case "$pane_id" in
+      %*) _set_pane_role_label "$pane_id" "$role" ;;
+      @*)
+        local root_pane
+        root_pane="$(tmux list-panes -t "$pane_id" -F '#{pane_id}' 2>/dev/null | head -n1)"
+        [[ -n "$root_pane" ]] && _set_pane_role_label "$root_pane" "$role"
+        ;;
+    esac
+  fi
+
+  success "spawn しました: ${role}"
+}
+
+# ════════════════════════════════════════════════════════════
 # shogun stop
 # ════════════════════════════════════════════════════════════
 cmd_stop() {
@@ -1364,6 +1446,7 @@ cmd_help() {
   echo -e "  ${CYAN}stop${RESET} (alias: ${CYAN}kijin${RESET}（帰陣）) [--legacy]   エージェントの tmux セッションを終了"
   echo -e "  ${CYAN}reset${RESET} [-y|--yes]               エージェントを強制停止してキューを初期化"
   echo -e "  ${CYAN}task${RESET} \"<説明>\" [--priority P]  新規タスクを投入"
+  echo -e "  ${CYAN}shogun spawn <role>${RESET}           役職をオンデマンドで起動（karo/gunshi/metsuke/ashigaruN）"
   echo -e "  ${CYAN}status${RESET}                       現在の状態を表示"
   echo -e "  ${CYAN}logs${RESET} [--agent <名前>]         ログを表示"
   echo -e "       [--tail N]              最新 N 行を表示 (デフォルト: 50)"
@@ -1393,6 +1476,7 @@ case "$COMMAND" in
   task)    cmd_task "$@" ;;
   start|shutsujin)   cmd_start "$@" ;;
   attach)            cmd_attach "$@" ;;
+  spawn)   cmd_spawn "$@" ;;
   stop|kijin)        cmd_stop "$@" ;;
   reset)             cmd_reset "$@" ;;
   status)  cmd_status "$@" ;;

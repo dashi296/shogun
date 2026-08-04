@@ -55,26 +55,25 @@ process.stdout.write(crypto.createHash('sha1').update(process.argv[1]).digest('h
 " "$physical_root"
 }
 
-test_session_names() {
+# 1セッション構成: project_session_name() が返す単一の tmux セッション名
+test_session_name() {
   local project_name="$1"
   local root="$2"
   local safe_name root_hash
   safe_name="$(test_safe_name "$project_name")"
   root_hash="$(test_root_hash "$root")"
-  printf "%s %s\n" "taisho-${safe_name}-${root_hash}" "multiagent-${safe_name}-${root_hash}"
+  printf "shogun-%s-%s" "${safe_name}" "${root_hash}"
 }
 
 teardown() {
-  local project_name safe_name legacy_safe_name session_taisho session_multi extra_session extra_dir
+  local project_name safe_name legacy_safe_name session extra_session extra_dir
   if [[ -f "${TEST_PROJECT}/.shogun/config.yaml" ]]; then
     project_name="$(yaml_query "${TEST_PROJECT}/.shogun/config.yaml" "process.stdout.write(String(d.project_name || 'shogun'));")"
     safe_name="$(test_safe_name "$project_name")"
     legacy_safe_name="$(test_legacy_safe_name "$project_name")"
-    read -r session_taisho session_multi <<< "$(test_session_names "$project_name" "$TEST_PROJECT")"
-    tmux kill-session -t "=${session_taisho}" 2>/dev/null || true
-    tmux kill-session -t "=${session_multi}" 2>/dev/null || true
-    tmux kill-session -t "=${session_taisho}-other" 2>/dev/null || true
-    tmux kill-session -t "=${session_multi}-other" 2>/dev/null || true
+    session="$(test_session_name "$project_name" "$TEST_PROJECT")"
+    tmux kill-session -t "=${session}" 2>/dev/null || true
+    tmux kill-session -t "=${session}-other" 2>/dev/null || true
     tmux kill-session -t "=taisho-${safe_name}" 2>/dev/null || true
     tmux kill-session -t "=multiagent-${safe_name}" 2>/dev/null || true
     tmux kill-session -t "=taisho-${legacy_safe_name}" 2>/dev/null || true
@@ -94,35 +93,30 @@ teardown() {
 }
 
 @test "stop: kills project tmux sessions" {
-  local project_name session_taisho session_multi
+  local project_name session
   project_name="$(basename "${TEST_PROJECT}")"
-  read -r session_taisho session_multi <<< "$(test_session_names "$project_name" "$TEST_PROJECT")"
+  session="$(test_session_name "$project_name" "$TEST_PROJECT")"
 
-  tmux new-session -d -s "$session_taisho"
-  tmux new-session -d -s "$session_multi"
+  tmux new-session -d -s "$session"
 
   run shogun stop
   [ "$status" -eq 0 ]
-  [[ "$output" == *"$session_taisho"* ]]
-  [[ "$output" == *"$session_multi"* ]]
+  [[ "$output" == *"$session"* ]]
 
-  run tmux has-session -t "=${session_taisho}"
-  [ "$status" -ne 0 ]
-  run tmux has-session -t "=${session_multi}"
+  run tmux has-session -t "=${session}"
   [ "$status" -ne 0 ]
 }
 
 @test "stop: kills leftover inbox_watcher processes for the project" {
-  local project_name session_taisho session_multi
+  local project_name session
   project_name="$(basename "${TEST_PROJECT}")"
-  read -r session_taisho session_multi <<< "$(test_session_names "$project_name" "$TEST_PROJECT")"
+  session="$(test_session_name "$project_name" "$TEST_PROJECT")"
 
-  tmux new-session -d -s "$session_taisho"
-  tmux new-session -d -s "$session_multi"
+  tmux new-session -d -s "$session"
 
   # このプロジェクトの残留 watcher を模したプロセスを起動
-  spawn_fake_watcher "bash inbox_watcher.sh ashigaru1 ${session_multi}:0.3" >/dev/null
-  run pgrep -f "inbox_watcher.sh.*${session_multi}"
+  spawn_fake_watcher "bash inbox_watcher.sh ashigaru1 ${session}:0.3" >/dev/null
+  run pgrep -f "inbox_watcher.sh.*${session}"
   [ "$status" -eq 0 ]
 
   run shogun stop
@@ -130,37 +124,36 @@ teardown() {
 
   # stop 後は watcher が停止している
   local j=0
-  while pgrep -f "inbox_watcher.sh.*${session_multi}" >/dev/null 2>&1; do
+  while pgrep -f "inbox_watcher.sh.*${session}" >/dev/null 2>&1; do
     sleep 0.05
     j=$((j + 1))
     [ "$j" -gt 40 ] && break
   done
-  run pgrep -f "inbox_watcher.sh.*${session_multi}"
+  run pgrep -f "inbox_watcher.sh.*${session}"
   [ "$status" -ne 0 ]
 }
 
 @test "stop: does not kill watcher processes of another project" {
-  local project_name session_taisho session_multi
+  local project_name session
   project_name="$(basename "${TEST_PROJECT}")"
-  read -r session_taisho session_multi <<< "$(test_session_names "$project_name" "$TEST_PROJECT")"
+  session="$(test_session_name "$project_name" "$TEST_PROJECT")"
 
-  tmux new-session -d -s "$session_taisho"
-  tmux new-session -d -s "$session_multi"
+  tmux new-session -d -s "$session"
 
   # 別プロジェクト（別 root → 別ハッシュ）の watcher。停止対象外であること
-  local other_root other_taisho other_multi
+  local other_root other_session
   other_root="$(mktemp -d)"
   EXTRA_DIRS+=("$other_root")
-  read -r other_taisho other_multi <<< "$(test_session_names "$project_name" "$other_root")"
+  other_session="$(test_session_name "$project_name" "$other_root")"
 
-  spawn_fake_watcher "bash inbox_watcher.sh ashigaru1 ${other_multi}:0.3" >/dev/null
+  spawn_fake_watcher "bash inbox_watcher.sh ashigaru1 ${other_session}:0.3" >/dev/null
 
   run shogun stop
   [ "$status" -eq 0 ]
   sleep 0.3
 
   # 別プロジェクトの watcher は生存している
-  run pgrep -f "inbox_watcher.sh.*${other_multi}"
+  run pgrep -f "inbox_watcher.sh.*${other_session}"
   [ "$status" -eq 0 ]
 }
 
@@ -171,21 +164,17 @@ teardown() {
 }
 
 @test "stop: does not kill sessions with similar names" {
-  local project_name session_taisho session_multi
+  local project_name session
   project_name="$(basename "${TEST_PROJECT}")"
-  read -r session_taisho session_multi <<< "$(test_session_names "$project_name" "$TEST_PROJECT")"
+  session="$(test_session_name "$project_name" "$TEST_PROJECT")"
 
-  tmux new-session -d -s "$session_taisho"
-  tmux new-session -d -s "$session_multi"
-  tmux new-session -d -s "${session_taisho}-other"
-  tmux new-session -d -s "${session_multi}-other"
+  tmux new-session -d -s "$session"
+  tmux new-session -d -s "${session}-other"
 
   run shogun stop
   [ "$status" -eq 0 ]
 
-  run tmux has-session -t "=${session_taisho}-other"
-  [ "$status" -eq 0 ]
-  run tmux has-session -t "=${session_multi}-other"
+  run tmux has-session -t "=${session}-other"
   [ "$status" -eq 0 ]
 }
 
@@ -213,24 +202,20 @@ data.project_name = 'bad:name.with space';
 fs.writeFileSync(file, yaml.dump(data));
 NODE
 
-  local session_taisho session_multi
-  read -r session_taisho session_multi <<< "$(test_session_names "bad:name.with space" "$TEST_PROJECT")"
-  tmux new-session -d -s "$session_taisho"
-  tmux new-session -d -s "$session_multi"
+  local session
+  session="$(test_session_name "bad:name.with space" "$TEST_PROJECT")"
+  tmux new-session -d -s "$session"
 
   run shogun stop
   [ "$status" -eq 0 ]
-  [[ "$output" == *"$session_taisho"* ]]
-  [[ "$output" == *"$session_multi"* ]]
+  [[ "$output" == *"$session"* ]]
 
-  run tmux has-session -t "=${session_taisho}"
-  [ "$status" -ne 0 ]
-  run tmux has-session -t "=${session_multi}"
+  run tmux has-session -t "=${session}"
   [ "$status" -ne 0 ]
 }
 
 @test "stop: does not kill sessions from other project with same safe name" {
-  local project_name session_taisho session_multi other_root other_taisho other_multi
+  local project_name session other_root other_session
   project_name="same:name"
   node - <<'NODE'
 const fs = require('fs');
@@ -241,29 +226,22 @@ data.project_name = 'same:name';
 fs.writeFileSync(file, yaml.dump(data));
 NODE
 
-  read -r session_taisho session_multi <<< "$(test_session_names "$project_name" "$TEST_PROJECT")"
+  session="$(test_session_name "$project_name" "$TEST_PROJECT")"
   other_root="$(mktemp -d)"
   EXTRA_DIRS+=("$other_root")
-  read -r other_taisho other_multi <<< "$(test_session_names "$project_name" "$other_root")"
+  other_session="$(test_session_name "$project_name" "$other_root")"
 
-  tmux new-session -d -s "$session_taisho"
-  tmux new-session -d -s "$session_multi"
-  tmux new-session -d -s "$other_taisho"
-  tmux new-session -d -s "$other_multi"
-  EXTRA_TMUX_SESSIONS+=("$other_taisho" "$other_multi")
+  tmux new-session -d -s "$session"
+  tmux new-session -d -s "$other_session"
+  EXTRA_TMUX_SESSIONS+=("$other_session")
 
   run shogun stop
   [ "$status" -eq 0 ]
 
-  run tmux has-session -t "=${session_taisho}"
+  run tmux has-session -t "=${session}"
   [ "$status" -ne 0 ]
-  run tmux has-session -t "=${session_multi}"
-  [ "$status" -ne 0 ]
-  run tmux has-session -t "=${other_taisho}"
+  run tmux has-session -t "=${other_session}"
   [ "$status" -eq 0 ]
-  run tmux has-session -t "=${other_multi}"
-  [ "$status" -eq 0 ]
-
 }
 
 @test "stop: does not kill legacy sessions without hash by default" {
@@ -303,10 +281,10 @@ NODE
 }
 
 @test "start: does not kill legacy sessions without hash by default" {
-  local project_name legacy_safe_name session_taisho session_multi
+  local project_name legacy_safe_name session
   project_name="$(basename "${TEST_PROJECT}")"
   legacy_safe_name="$(test_legacy_safe_name "$project_name")"
-  read -r session_taisho session_multi <<< "$(test_session_names "$project_name" "$TEST_PROJECT")"
+  session="$(test_session_name "$project_name" "$TEST_PROJECT")"
 
   tmux new-session -d -s "taisho-${legacy_safe_name}"
   tmux new-session -d -s "multiagent-${legacy_safe_name}"
@@ -314,9 +292,7 @@ NODE
   run shogun start --setup
   [ "$status" -eq 0 ]
 
-  run tmux has-session -t "=${session_taisho}"
-  [ "$status" -eq 0 ]
-  run tmux has-session -t "=${session_multi}"
+  run tmux has-session -t "=${session}"
   [ "$status" -eq 0 ]
   run tmux has-session -t "=taisho-${legacy_safe_name}"
   [ "$status" -eq 0 ]
@@ -325,10 +301,10 @@ NODE
 }
 
 @test "start --legacy-cleanup: also kills legacy sessions without hash" {
-  local project_name legacy_safe_name session_taisho session_multi
+  local project_name legacy_safe_name session
   project_name="$(basename "${TEST_PROJECT}")"
   legacy_safe_name="$(test_legacy_safe_name "$project_name")"
-  read -r session_taisho session_multi <<< "$(test_session_names "$project_name" "$TEST_PROJECT")"
+  session="$(test_session_name "$project_name" "$TEST_PROJECT")"
 
   tmux new-session -d -s "taisho-${legacy_safe_name}"
   tmux new-session -d -s "multiagent-${legacy_safe_name}"
@@ -336,9 +312,7 @@ NODE
   run shogun start --setup --legacy-cleanup
   [ "$status" -eq 0 ]
 
-  run tmux has-session -t "=${session_taisho}"
-  [ "$status" -eq 0 ]
-  run tmux has-session -t "=${session_multi}"
+  run tmux has-session -t "=${session}"
   [ "$status" -eq 0 ]
   run tmux has-session -t "=taisho-${legacy_safe_name}"
   [ "$status" -ne 0 ]
@@ -347,7 +321,7 @@ NODE
 }
 
 @test "stop: uses same hash for symlink and physical path" {
-  local project_name link_dir physical_hash link_hash session_taisho session_multi
+  local project_name link_dir physical_hash link_hash session
   project_name="$(basename "${TEST_PROJECT}")"
   link_dir="$(mktemp -d)/linked-project"
   EXTRA_DIRS+=("$(dirname "$link_dir")")
@@ -357,16 +331,13 @@ NODE
   link_hash="$(test_root_hash "$link_dir")"
   [ "$link_hash" = "$physical_hash" ]
 
-  read -r session_taisho session_multi <<< "$(test_session_names "$project_name" "$link_dir")"
-  tmux new-session -d -s "$session_taisho"
-  tmux new-session -d -s "$session_multi"
+  session="$(test_session_name "$project_name" "$link_dir")"
+  tmux new-session -d -s "$session"
 
   run shogun stop
   [ "$status" -eq 0 ]
 
-  run tmux has-session -t "=${session_taisho}"
-  [ "$status" -ne 0 ]
-  run tmux has-session -t "=${session_multi}"
+  run tmux has-session -t "=${session}"
   [ "$status" -ne 0 ]
 }
 

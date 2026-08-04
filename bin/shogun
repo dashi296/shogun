@@ -139,14 +139,16 @@ project_agmsg_team_name() {
   printf '%s-%s' "${safe_name}" "${root_hash}"
 }
 
-# project_name と SHOGUN_ROOT から Shogun が管理する tmux セッション名を生成
-project_session_names() {
+# project_name と SHOGUN_ROOT から Shogun が管理する tmux セッション名を生成する
+# （1セッション構成。agmsg の spawn は呼び出し元の現在 session にしか
+# spawn できないため、Taisho も含め全役職が同一セッション内に配置される）。
+project_session_name() {
   local project_name="$1"
   local project_root="$2"
   local safe_name root_hash
   safe_name="$(project_safe_name "$project_name")" || return 1
   root_hash="$(project_root_hash "$project_root")"
-  printf "%s %s\n" "taisho-${safe_name}-${root_hash}" "multiagent-${safe_name}-${root_hash}"
+  printf "shogun-%s-%s" "${safe_name}" "${root_hash}"
 }
 
 # hash 導入前の legacy tmux セッション名を生成（既存の cmd_start と同じスペースのみ置換）
@@ -167,9 +169,9 @@ tmux_exact_target() {
 # プロジェクト固有のセッション名（ハッシュ込み）と root でスコープを限定し、
 # 他プロジェクトの watcher を巻き込まないようにする。
 stop_project_watchers() {
-  local session_taisho="$1" session_multi="$2" root="$3"
+  local session="$1" root="$2"
   # inbox_watcher.sh はペイン引数にセッション名（ハッシュ込み）を含む
-  pkill -f "inbox_watcher\.sh .*(${session_taisho}|${session_multi})" 2>/dev/null || true
+  pkill -f "inbox_watcher\.sh .*${session}" 2>/dev/null || true
   # fswatch は監視対象パスに <root>/.shogun/queue を含む（dot を正規表現エスケープ）
   local root_re="${root//./\\.}"
   pkill -f "fswatch .*${root_re}/\.shogun/queue" 2>/dev/null || true
@@ -181,10 +183,10 @@ stop_sessions_and_watchers() {
   local include_legacy="${1:-0}"
   local project_name
   project_name="$(read_project_name "${SHOGUN_ROOT}/.shogun/config.yaml")"
-  local session_taisho session_multi
-  read -r session_taisho session_multi <<< "$(project_session_names "$project_name" "$SHOGUN_ROOT")" || return 1
+  local session
+  session="$(project_session_name "$project_name" "$SHOGUN_ROOT")" || return 1
 
-  local sessions=("$session_taisho" "$session_multi")
+  local sessions=("$session")
   if [[ "$include_legacy" -eq 1 ]]; then
     local legacy_session_taisho legacy_session_multi
     read -r legacy_session_taisho legacy_session_multi <<< "$(legacy_project_session_names "$project_name")" || return 1
@@ -192,17 +194,17 @@ stop_sessions_and_watchers() {
   fi
 
   _SHOGUN_STOPPED_COUNT=0
-  local session
-  for session in "${sessions[@]}"; do
-    if tmux kill-session -t "$(tmux_exact_target "$session")" 2>/dev/null; then
-      info "セッション ${session} を終了しました。"
+  local s
+  for s in "${sessions[@]}"; do
+    if tmux kill-session -t "$(tmux_exact_target "$s")" 2>/dev/null; then
+      info "セッション ${s} を終了しました。"
       _SHOGUN_STOPPED_COUNT=$(( _SHOGUN_STOPPED_COUNT + 1 ))
     else
-      info "セッション ${session} は停止済みです。"
+      info "セッション ${s} は停止済みです。"
     fi
   done
 
-  stop_project_watchers "$session_taisho" "$session_multi" "$SHOGUN_ROOT"
+  stop_project_watchers "$session" "$SHOGUN_ROOT"
 }
 
 # キューファイルを空配列にリセットする（cmd_start --clean / cmd_reset 共通処理）。
@@ -715,9 +717,12 @@ process.stdout.write([
     ashigaru_count="$count_override"
   fi
 
-  # セッション名
-  local session_taisho session_multi
-  read -r session_taisho session_multi <<< "$(project_session_names "$project_name" "$SHOGUN_ROOT")" || exit 1
+  # セッション名（1セッション構成。Task 4 で本体のセッション作成ロジックを
+  # 書き換えるまでの前方互換のため、session_taisho/session_multi は同じ
+  # セッション名を指すダミー代入にしている）
+  local session
+  session="$(project_session_name "$project_name" "$SHOGUN_ROOT")" || exit 1
+  local session_taisho="$session" session_multi="$session"
 
   info "プロジェクト: ${project_name}"
   info "足軽数: ${ashigaru_count}"
@@ -818,7 +823,12 @@ process.stdout.write([
 
   # ─── multiagent-<name> セッション
   # ペイン0: karo
-  tmux new-session -d -s "$session_multi" -x 220 -y 50
+  # NOTE(Task 3): 1セッション統合の前方互換のダミー代入により、この時点では
+  # session_multi は session_taisho と同一セッション名を指す。そのため
+  # 既に存在するセッションに対する new-session は "duplicate session" で
+  # 失敗しうるが、set -e でスクリプト全体を落とさないよう許容する
+  # （実際のペイン統合ロジックの書き換えは Task 4 で行う）。
+  tmux new-session -d -s "$session_multi" -x 220 -y 50 2>/dev/null || true
   tmux set-option -t "$session_multi" pane-border-status top 2>/dev/null || true
   tmux set-option -t "$session_multi" pane-border-format " #[fg=#{@shogun_color},bold]#{@shogun_role}#[default] │ #{pane_title} " 2>/dev/null || true
 
@@ -869,8 +879,7 @@ process.stdout.write([
   success "Shogun 起動完了!"
   echo ""
   echo -e "  ${BOLD}セッションに接続:${RESET}"
-  echo -e "  ${CYAN}shogun attach taisho${RESET}   (Taisho)"
-  echo -e "  ${CYAN}shogun attach multi${RESET}    (マルチエージェント)"
+  echo -e "  ${CYAN}shogun attach${RESET}   (Taisho / マルチエージェント共通の単一セッション)"
   echo ""
   echo -e "  ${BOLD}タスク投入:${RESET}"
   echo -e "  ${CYAN}shogun task \"やること\"${RESET}"
@@ -882,45 +891,23 @@ process.stdout.write([
 cmd_attach() {
   require_init
 
-  local target="${1:-taisho}"
-
-  if ! [[ "$target" =~ ^[A-Za-z0-9_-]+$ ]]; then
-    error "不正なターゲット名: ${target}"
-    exit 1
-  fi
-
   local config_file="${SHOGUN_ROOT}/.shogun/config.yaml"
   local project_name
   project_name="$(read_project_name "$config_file")"
 
-  local session_taisho session_multi
-  read -r session_taisho session_multi <<< "$(project_session_names "$project_name" "$SHOGUN_ROOT")" || exit 1
+  local session
+  session="$(project_session_name "$project_name" "$SHOGUN_ROOT")" || exit 1
 
-  local session_name
-  case "$target" in
-    taisho)
-      session_name="$session_taisho"
-      ;;
-    multi|multiagent)
-      session_name="$session_multi"
-      ;;
-    *)
-      error "不明なターゲット: ${target}"
-      echo "Usage: shogun attach [taisho|multi]"
-      exit 1
-      ;;
-  esac
-
-  if ! tmux has-session -t "$(tmux_exact_target "$session_name")" 2>/dev/null; then
-    error "セッション ${session_name} が見つかりません。"
+  if ! tmux has-session -t "$(tmux_exact_target "$session")" 2>/dev/null; then
+    error "セッション ${session} が見つかりません。"
     echo "       先に shogun start を実行してください。"
     exit 1
   fi
 
   if [[ -n "${TMUX:-}" ]]; then
-    tmux switch-client -t "$(tmux_exact_target "$session_name")"
+    tmux switch-client -t "$(tmux_exact_target "$session")"
   else
-    exec tmux attach-session -t "$(tmux_exact_target "$session_name")"
+    exec tmux attach-session -t "$(tmux_exact_target "$session")"
   fi
 }
 
@@ -1047,8 +1034,8 @@ cmd_status() {
   local project_name
   project_name="$(read_project_name "$config_file")"
 
-  local session_taisho session_multi
-  read -r session_taisho session_multi <<< "$(project_session_names "$project_name" "$SHOGUN_ROOT")" || exit 1
+  local session
+  session="$(project_session_name "$project_name" "$SHOGUN_ROOT")" || exit 1
 
   echo -e "${BOLD}${MAGENTA}=== Shogun Status: ${project_name} ===${RESET}"
   echo ""
@@ -1100,16 +1087,10 @@ process.stdout.write(String((d.tasks || []).length));
   # tmux セッション稼働確認
   echo -e "${BOLD}[ tmux セッション ]${RESET}"
 
-  if tmux has-session -t "$(tmux_exact_target "$session_taisho")" 2>/dev/null; then
-    echo -e "  ${GREEN}●${RESET} ${session_taisho} (稼働中)"
+  if tmux has-session -t "$(tmux_exact_target "$session")" 2>/dev/null; then
+    echo -e "  ${GREEN}●${RESET} ${session} (稼働中)"
   else
-    echo -e "  ${RED}○${RESET} ${session_taisho} (停止)"
-  fi
-
-  if tmux has-session -t "$(tmux_exact_target "$session_multi")" 2>/dev/null; then
-    echo -e "  ${GREEN}●${RESET} ${session_multi} (稼働中)"
-  else
-    echo -e "  ${RED}○${RESET} ${session_multi} (停止)"
+    echo -e "  ${RED}○${RESET} ${session} (停止)"
   fi
 
   # dashboard
@@ -1274,17 +1255,12 @@ cmd_doctor() {
     if [[ -f "$config_file" ]]; then
       local project_name
       project_name="$(read_project_name "$config_file" 2>/dev/null || echo "shogun")"
-      local s1 s2
-      read -r s1 s2 <<< "$(project_session_names "$project_name" "$SHOGUN_ROOT")"
-      if tmux has-session -t "$(tmux_exact_target "$s1")" 2>/dev/null; then
-        echo -e "  ${GREEN}●${RESET} ${s1} (稼働中)"
+      local s
+      s="$(project_session_name "$project_name" "$SHOGUN_ROOT")"
+      if tmux has-session -t "$(tmux_exact_target "$s")" 2>/dev/null; then
+        echo -e "  ${GREEN}●${RESET} ${s} (稼働中)"
       else
-        echo -e "  ${RED}○${RESET} ${s1} (停止)"
-      fi
-      if tmux has-session -t "$(tmux_exact_target "$s2")" 2>/dev/null; then
-        echo -e "  ${GREEN}●${RESET} ${s2} (稼働中)"
-      else
-        echo -e "  ${RED}○${RESET} ${s2} (停止)"
+        echo -e "  ${RED}○${RESET} ${s} (停止)"
       fi
     fi
   else
@@ -1479,7 +1455,7 @@ cmd_help() {
   echo -e "  ${CYAN}init${RESET}                         プロジェクトを初期化 (.shogun/ を作成)"
   echo -e "  ${CYAN}start${RESET} (alias: ${CYAN}shutsujin${RESET}（出陣）) [--clean] [--setup] [--count N] [--legacy-cleanup]"
   echo -e "                                エージェントを tmux で起動"
-  echo -e "  ${CYAN}attach${RESET} [taisho|multi]          tmux セッションに接続"
+  echo -e "  ${CYAN}attach${RESET}                        tmux セッションに接続"
   echo -e "  ${CYAN}stop${RESET} (alias: ${CYAN}kijin${RESET}（帰陣）) [--legacy]   エージェントの tmux セッションを終了"
   echo -e "  ${CYAN}reset${RESET} [-y|--yes]               エージェントを強制停止してキューを初期化"
   echo -e "  ${CYAN}task${RESET} \"<説明>\" [--priority P]  新規タスクを投入"

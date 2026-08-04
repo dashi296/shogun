@@ -12,84 +12,53 @@ teardown() {
   teardown_test_project
 }
 
-# --- happy path ---
+# --- agmsg 送信への置き換え後の振る舞い ---
 
-@test "task: adds command to shogun_to_karo.yaml" {
+_stub_agmsg_send() {
+  local fake_dir="${TEST_PROJECT}/fake-adapter"
+  mkdir -p "$fake_dir"
+  export AGMSG_SEND_LOG="${TEST_PROJECT}/agmsg_send.log"
+  : > "$AGMSG_SEND_LOG"
+  cat > "${fake_dir}/agmsg_adapter.sh" <<'FAKE'
+agmsg_send() { echo "send $*" >> "${AGMSG_SEND_LOG}"; }
+FAKE
+  export SHOGUN_FAKE_AGMSG_ADAPTER="${fake_dir}/agmsg_adapter.sh"
+}
+
+@test "task: sends the task description to taisho via agmsg" {
+  _stub_agmsg_send
   run shogun task "build auth feature"
   [ "$status" -eq 0 ]
-
-  run node -e "
-const yaml = require('js-yaml');
-const d = yaml.load(require('fs').readFileSync('.shogun/queue/shogun_to_karo.yaml', 'utf8'));
-process.stdout.write(String(d.commands.length));
-"
-  [ "$output" = "1" ]
+  run grep "taisho" "$AGMSG_SEND_LOG"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"build auth feature"* ]]
 }
 
-@test "task: sets command status to pending" {
-  shogun task "build auth feature"
-
-  run node -e "
+@test "task: no longer writes shogun_to_karo.yaml" {
+  _stub_agmsg_send
+  shogun task "build auth feature" >/dev/null
+  [ ! -f ".shogun/queue/shogun_to_karo.yaml" ] || {
+    run node -e "
 const yaml = require('js-yaml');
-const d = yaml.load(require('fs').readFileSync('.shogun/queue/shogun_to_karo.yaml', 'utf8'));
-process.stdout.write(d.commands[0].status);
+const d = yaml.load(require('fs').readFileSync('.shogun/queue/shogun_to_karo.yaml', 'utf8')) || {commands: []};
+process.stdout.write(String((d.commands || []).length));
 "
-  [ "$output" = "pending" ]
+    [ "$output" = "0" ]
+  }
 }
 
-@test "task: first command id is cmd_001" {
-  shogun task "build auth feature"
-
-  run node -e "
-const yaml = require('js-yaml');
-const d = yaml.load(require('fs').readFileSync('.shogun/queue/shogun_to_karo.yaml', 'utf8'));
-process.stdout.write(d.commands[0].id);
-"
-  [ "$output" = "cmd_001" ]
+@test "task: --priority option is shown in output but not persisted to a queue file" {
+  _stub_agmsg_send
+  run shogun task "urgent fix" --priority high
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"優先度: high"* ]]
 }
 
-@test "task: saves command description" {
-  shogun task "implement login page"
-
-  run node -e "
-const yaml = require('js-yaml');
-const d = yaml.load(require('fs').readFileSync('.shogun/queue/shogun_to_karo.yaml', 'utf8'));
-process.stdout.write(d.commands[0].command);
-"
-  [ "$output" = "implement login page" ]
-}
-
-@test "task: writes notification to taisho inbox" {
-  shogun task "build auth feature"
-
-  # MCP 移行後: inbox は SQLite。cli.js で未読件数が 1 であることを確認する。
-  run node "${SHOGUN_REPO}/packages/mcp-queue/cli.js" \
-    inbox_unread_count "--root=${TEST_PROJECT}" "--role=taisho"
-  [ "$output" = "1" ]
-}
-
-@test "task: saves --priority option" {
-  shogun task "urgent fix" --priority high
-
-  run node -e "
-const yaml = require('js-yaml');
-const d = yaml.load(require('fs').readFileSync('.shogun/queue/shogun_to_karo.yaml', 'utf8'));
-process.stdout.write(d.commands[0].priority);
-"
-  [ "$output" = "high" ]
-}
-
-@test "task: assigns sequential ids for multiple tasks" {
-  shogun task "task one"
-  shogun task "task two"
-  shogun task "task three"
-
-  run node -e "
-const yaml = require('js-yaml');
-const d = yaml.load(require('fs').readFileSync('.shogun/queue/shogun_to_karo.yaml', 'utf8'));
-process.stdout.write(d.commands.map(c => c.id).join(','));
-"
-  [ "$output" = "cmd_001,cmd_002,cmd_003" ]
+@test "task: --priority=value form is accepted" {
+  _stub_agmsg_send
+  run shogun task "urgent fix" --priority=high
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"優先度: high"* ]]
 }
 
 # --- error cases ---
@@ -104,4 +73,11 @@ process.stdout.write(d.commands.map(c => c.id).join(','));
   [[ "$output" == *"ERROR"* ]]
 
   rm -rf "$no_init_dir"
+}
+
+@test "task: rejects unknown options" {
+  _stub_agmsg_send
+  run shogun task "build auth feature" --bogus-option
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ERROR"* ]]
 }

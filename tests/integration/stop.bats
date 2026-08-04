@@ -179,7 +179,14 @@ teardown() {
 }
 
 @test "stop: does not modify queue YAML" {
-  shogun task "stop 後も保持されるタスク" >/dev/null
+  # shogun task はもはや shogun_to_karo.yaml に書き込まないため（agmsg send 経由に
+  # 置き換え済み）、既存キューを stop が変更しないことを検証するために直接書き込む。
+  node -e "
+const fs = require('fs');
+const yaml = require('js-yaml');
+const data = { commands: [{ id: 'cmd_001', timestamp: new Date().toISOString(), command: 'stop 後も保持されるタスク', priority: 'normal', status: 'pending' }] };
+fs.writeFileSync('.shogun/queue/shogun_to_karo.yaml', yaml.dump(data, { allowUnicode: true }));
+"
   local before
   before="$(cat .shogun/queue/shogun_to_karo.yaml)"
 

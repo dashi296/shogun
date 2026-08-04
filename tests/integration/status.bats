@@ -13,7 +13,14 @@ teardown() {
 }
 
 @test "status: displays command queue contents" {
-  shogun task "build auth feature" >/dev/null
+  # shogun task はもはや shogun_to_karo.yaml に書き込まないため（agmsg send 経由に
+  # 置き換え済み）、shogun status のキュー表示自体を検証するために直接書き込む。
+  node -e "
+const fs = require('fs');
+const yaml = require('js-yaml');
+const data = { commands: [{ id: 'cmd_001', timestamp: new Date().toISOString(), command: 'build auth feature', priority: 'normal', status: 'pending' }] };
+fs.writeFileSync('.shogun/queue/shogun_to_karo.yaml', yaml.dump(data, { allowUnicode: true }));
+"
   run shogun status
   [ "$status" -eq 0 ]
   [[ "$output" == *"cmd_001"* ]]

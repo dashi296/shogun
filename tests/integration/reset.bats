@@ -49,6 +49,18 @@ setup() {
   cd "${TEST_PROJECT}"
 }
 
+# shogun task はもはや shogun_to_karo.yaml に書き込まないため（agmsg send 経由に
+# 置き換え済み）、reset がキューを実際に空へ戻すことを検証するために直接書き込む。
+_seed_command_queue() {
+  local desc="$1"
+  node -e "
+const fs = require('fs');
+const yaml = require('js-yaml');
+const data = { commands: [{ id: 'cmd_001', timestamp: new Date().toISOString(), command: process.argv[1], priority: 'normal', status: 'pending' }] };
+fs.writeFileSync('.shogun/queue/shogun_to_karo.yaml', yaml.dump(data, { allowUnicode: true }));
+" "$desc"
+}
+
 teardown() {
   local project_name session extra_dir
   if [[ -f "${TEST_PROJECT}/.shogun/config.yaml" ]]; then
@@ -74,7 +86,7 @@ teardown() {
 }
 
 @test "reset: does nothing on No answer to prompt" {
-  shogun task "テストタスク" >/dev/null
+  _seed_command_queue "テストタスク"
   local before
   before="$(cat .shogun/queue/shogun_to_karo.yaml)"
 
@@ -88,7 +100,7 @@ teardown() {
 }
 
 @test "reset: does nothing on empty answer (default No)" {
-  shogun task "テストタスク" >/dev/null
+  _seed_command_queue "テストタスク"
   local before
   before="$(cat .shogun/queue/shogun_to_karo.yaml)"
 
@@ -102,7 +114,7 @@ teardown() {
 }
 
 @test "reset -y: resets shogun_to_karo.yaml to commands: []" {
-  shogun task "テストタスク" >/dev/null
+  _seed_command_queue "テストタスク"
 
   run shogun reset -y
   [ "$status" -eq 0 ]
@@ -160,7 +172,7 @@ teardown() {
 }
 
 @test "reset --yes: resets queue (long form option)" {
-  shogun task "テストタスク" >/dev/null
+  _seed_command_queue "テストタスク"
 
   run shogun reset --yes
   [ "$status" -eq 0 ]

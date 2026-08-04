@@ -546,51 +546,24 @@ cmd_task() {
     fi
   fi
 
-  local queue_file="${SHOGUN_ROOT}/.shogun/queue/shogun_to_karo.yaml"
-  local timestamp
-  timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  # shellcheck source=scripts/agmsg_adapter.sh
+  source "${SHOGUN_FAKE_AGMSG_ADAPTER:-${SHOGUN_BIN_DIR}/scripts/agmsg_adapter.sh}"
 
-  # ID 生成（既存コマンド数+1、ゼロパディング3桁）
-  local cmd_id
-  cmd_id=$(node_yaml -e '
-const fs = require("fs");
-const yaml = require("js-yaml");
-const queueFile = process.argv[1];
-const data = yaml.load(fs.readFileSync(queueFile, "utf8")) || {commands: []};
-const cmds = data.commands || [];
-const next = cmds.length + 1;
-process.stdout.write("cmd_" + String(next).padStart(3, "0"));
-' -- "$queue_file")
+  local config_file="${SHOGUN_ROOT}/.shogun/config.yaml"
+  local project_name
+  project_name="$(read_project_name "$config_file")"
+  local _agmsg_cmd_name _agmsg_team
+  _agmsg_cmd_name="$(read_agmsg_cmd_name "$config_file")"
+  _agmsg_team="$(project_agmsg_team_name "$project_name" "$SHOGUN_ROOT")"
 
-  # shogun_to_karo.yaml にコマンドを追記
-  node_yaml -e '
-const fs = require("fs");
-const yaml = require("js-yaml");
-const [queueFile, id, ts, command, priority] = process.argv.slice(1);
-const data = yaml.load(fs.readFileSync(queueFile, "utf8")) || {commands: []};
-data.commands = data.commands || [];
-data.commands.push({
-  id,
-  timestamp: ts,
-  command,
-  priority,
-  status: "pending"
-});
-fs.writeFileSync(queueFile, yaml.dump(data, {allowUnicode: true}));
-' -- "$queue_file" "$cmd_id" "$timestamp" "$task_desc" "$priority"
+  if ! agmsg_send "$_agmsg_cmd_name" "$_agmsg_team" shogun taisho "$task_desc"; then
+    error "agmsg 経由でのタスク送信に失敗しました。shogun doctor で agmsg の状態を確認してください。"
+    exit 1
+  fi
 
-  success "タスクを追加しました: ${cmd_id}"
+  success "タスクをTaishoへ送信しました。"
   info "説明: ${task_desc}"
   info "優先度: ${priority}"
-
-  # SQLite inbox へ通知（cli.js 経由）
-  node "${SHOGUN_BIN_DIR}/packages/mcp-queue/cli.js" inbox_send \
-    "--root=${SHOGUN_ROOT}" \
-    "--from=shogun" \
-    "--to=taisho" \
-    "--subject=新規タスク: ${cmd_id}" \
-    "--body=${task_desc}" \
-    ${SHOGUN_PROJECT_ID:+"--project-id=${SHOGUN_PROJECT_ID}"}
 }
 
 _role_color() {

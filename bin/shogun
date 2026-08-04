@@ -491,8 +491,7 @@ fs.writeFileSync(file, yaml.dump(data, {allowUnicode: true}));
   # agmsg team への shogun system identity 登録。
   # agmsg が未導入でも shogun init 自体は使えるよう、失敗しても継続する
   # （shogun doctor で後から確認できる）。
-  # shellcheck source=scripts/agmsg_adapter.sh
-  source "${SHOGUN_BIN_DIR}/scripts/agmsg_adapter.sh"
+  _source_agmsg_adapter
   local _agmsg_cmd_name _agmsg_team
   _agmsg_cmd_name="$(read_agmsg_cmd_name "${shogun_dir}/config.yaml")"
   _agmsg_team="$(project_agmsg_team_name "$project_name" "$project_dir")"
@@ -551,8 +550,7 @@ cmd_task() {
     fi
   fi
 
-  # shellcheck source=scripts/agmsg_adapter.sh
-  source "${SHOGUN_FAKE_AGMSG_ADAPTER:-${SHOGUN_BIN_DIR}/scripts/agmsg_adapter.sh}"
+  _source_agmsg_adapter
 
   local config_file="${SHOGUN_ROOT}/.shogun/config.yaml"
   local project_name
@@ -581,6 +579,15 @@ _role_color() {
     ashigaru*) echo "green"   ;;
     *)         echo "white"   ;;
   esac
+}
+
+# agmsg_adapter.sh をsourceする（テストでは SHOGUN_FAKE_AGMSG_ADAPTER で差し替え可能）。
+# 全呼び出し元（init/start/doctor/spawn/task）で同一のsource経路を使うことで、
+# テストの差し替えseamが一部の呼び出し元だけに存在する不整合を防ぐ
+# （本番では環境変数が未設定のため ":-" のデフォルトが常に勝ち、挙動は変わらない）。
+_source_agmsg_adapter() {
+  # shellcheck source=scripts/agmsg_adapter.sh
+  source "${SHOGUN_FAKE_AGMSG_ADAPTER:-${SHOGUN_BIN_DIR}/scripts/agmsg_adapter.sh}"
 }
 
 _set_pane_role_label() {
@@ -730,12 +737,11 @@ process.stdout.write(v ? "true" : "false");
   info "run_id: ${run_id}"
 
   # agmsg: Taisho の最小 join（readiness の堅牢化は別issueで行う）。
-  # shellcheck source=scripts/agmsg_adapter.sh
-  source "${SHOGUN_BIN_DIR}/scripts/agmsg_adapter.sh"
+  _source_agmsg_adapter
   local _agmsg_cmd_name _agmsg_team
   _agmsg_cmd_name="$(read_agmsg_cmd_name "$config_file")"
   _agmsg_team="$(project_agmsg_team_name "$project_name" "$SHOGUN_ROOT")"
-  if agmsg_join "$_agmsg_cmd_name" taisho claude-code "$SHOGUN_ROOT" 2>/dev/null &&
+  if agmsg_join "$_agmsg_cmd_name" "$_agmsg_team" taisho claude-code "$SHOGUN_ROOT" 2>/dev/null &&
      agmsg_set_delivery "$_agmsg_cmd_name" set monitor claude-code "$SHOGUN_ROOT" 2>/dev/null; then
     info "agmsg: taisho をチーム '${_agmsg_team}' に登録しました（monitor配信）。"
   else
@@ -821,8 +827,7 @@ cmd_spawn() {
     exit 1
   fi
 
-  # shellcheck source=scripts/agmsg_adapter.sh
-  source "${SHOGUN_FAKE_AGMSG_ADAPTER:-${SHOGUN_BIN_DIR}/scripts/agmsg_adapter.sh}"
+  _source_agmsg_adapter
   # shellcheck source=scripts/agmsg_run_state.sh
   source "${SHOGUN_BIN_DIR}/scripts/agmsg_run_state.sh"
 
@@ -840,7 +845,7 @@ process.stdout.write(String((d.agents && d.agents.worker_model) || "sonnet"));
   _agmsg_cmd_name="$(read_agmsg_cmd_name "$config_file")"
   _agmsg_team="$(project_agmsg_team_name "$project_name" "$SHOGUN_ROOT")"
 
-  local -a spawn_args=(claude-code "$role" --model "$worker_model")
+  local -a spawn_args=(claude-code "$role" --model "$worker_model" --team "$_agmsg_team" --project "$SHOGUN_ROOT")
   if [[ "$role" == "karo" ]]; then
     spawn_args+=(--window)
   fi
@@ -1184,8 +1189,7 @@ cmd_doctor() {
   # agmsg
   echo ""
   echo -e "${BOLD}[ agmsg ]${RESET}"
-  # shellcheck source=scripts/agmsg_adapter.sh
-  source "${SHOGUN_BIN_DIR}/scripts/agmsg_adapter.sh"
+  _source_agmsg_adapter
   local _agmsg_cmd_name="agmsg"
   if SHOGUN_ROOT="$(find_shogun_root 2>/dev/null)" && [[ -f "${SHOGUN_ROOT}/.shogun/config.yaml" ]]; then
     _agmsg_cmd_name="$(read_agmsg_cmd_name "${SHOGUN_ROOT}/.shogun/config.yaml")" || _agmsg_cmd_name="agmsg"

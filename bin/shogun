@@ -127,14 +127,28 @@ process.stdout.write(crypto.createHash("sha1").update(process.argv[1]).digest("h
 ' -- "$physical_root"
 }
 
-# project_name と SHOGUN_ROOT から Shogun が管理する tmux セッション名を生成
-project_session_names() {
+# project_name と SHOGUN_ROOT から agmsg team 名を生成する
+# （tmux セッション名とは別の命名空間。他プロジェクトとの衝突防止に
+# project_safe_name/project_root_hash を再利用する）。
+project_agmsg_team_name() {
   local project_name="$1"
   local project_root="$2"
   local safe_name root_hash
   safe_name="$(project_safe_name "$project_name")" || return 1
   root_hash="$(project_root_hash "$project_root")"
-  printf "%s %s\n" "taisho-${safe_name}-${root_hash}" "multiagent-${safe_name}-${root_hash}"
+  printf '%s-%s' "${safe_name}" "${root_hash}"
+}
+
+# project_name と SHOGUN_ROOT から Shogun が管理する tmux セッション名を生成する
+# （1セッション構成。agmsg の spawn は呼び出し元の現在 session にしか
+# spawn できないため、Taisho も含め全役職が同一セッション内に配置される）。
+project_session_name() {
+  local project_name="$1"
+  local project_root="$2"
+  local safe_name root_hash
+  safe_name="$(project_safe_name "$project_name")" || return 1
+  root_hash="$(project_root_hash "$project_root")"
+  printf "shogun-%s-%s" "${safe_name}" "${root_hash}"
 }
 
 # hash 導入前の legacy tmux セッション名を生成（既存の cmd_start と同じスペースのみ置換）
@@ -149,18 +163,23 @@ tmux_exact_target() {
   printf "=%s" "$1"
 }
 
-# 残留した inbox_watcher / fswatch プロセスを停止する。
+# 残留した inbox_watcher プロセスを停止する。
 # inbox_watcher は `&` でバックグラウンド起動されるため tmux kill-session では
 # SIGHUP が届かず孤児化し、同じ inbox を監視し続けて誤ペインへ wake-up を送る。
-# プロジェクト固有のセッション名（ハッシュ込み）と root でスコープを限定し、
-# 他プロジェクトの watcher を巻き込まないようにする。
+# 引数: <session1> [session2 ...]
+#   セッション名ごとに個別の pkill パターンを構築する（ペイン引数にセッション名
+#   （ハッシュ込み）を含むため）。呼び出し元はカレントセッションに加え、
+#   include_legacy 時は本ブランチ以前（2セッション構成）の legacy セッション名
+#   （multiagent-<name> / taisho-<name>）も渡すことで、旧コードが残した孤児
+#   watcher（このブランチの1セッション名パターンには決してマッチしない）も
+#   停止対象にできる。
+# 注: 本ブランチの inbox_watcher.sh は MCP プル型へ移行済みで fswatch を使わない
+#   ため、fswatch 向け pkill は行わない。
 stop_project_watchers() {
-  local session_taisho="$1" session_multi="$2" root="$3"
-  # inbox_watcher.sh はペイン引数にセッション名（ハッシュ込み）を含む
-  pkill -f "inbox_watcher\.sh .*(${session_taisho}|${session_multi})" 2>/dev/null || true
-  # fswatch は監視対象パスに <root>/.shogun/queue を含む（dot を正規表現エスケープ）
-  local root_re="${root//./\\.}"
-  pkill -f "fswatch .*${root_re}/\.shogun/queue" 2>/dev/null || true
+  local session
+  for session in "$@"; do
+    pkill -f "inbox_watcher\.sh .*${session}" 2>/dev/null || true
+  done
 }
 
 # セッションと孤児 watcher を停止する（cmd_stop / cmd_reset 共通処理）。
@@ -169,10 +188,10 @@ stop_sessions_and_watchers() {
   local include_legacy="${1:-0}"
   local project_name
   project_name="$(read_project_name "${SHOGUN_ROOT}/.shogun/config.yaml")"
-  local session_taisho session_multi
-  read -r session_taisho session_multi <<< "$(project_session_names "$project_name" "$SHOGUN_ROOT")" || return 1
+  local session
+  session="$(project_session_name "$project_name" "$SHOGUN_ROOT")" || return 1
 
-  local sessions=("$session_taisho" "$session_multi")
+  local sessions=("$session")
   if [[ "$include_legacy" -eq 1 ]]; then
     local legacy_session_taisho legacy_session_multi
     read -r legacy_session_taisho legacy_session_multi <<< "$(legacy_project_session_names "$project_name")" || return 1
@@ -180,17 +199,17 @@ stop_sessions_and_watchers() {
   fi
 
   _SHOGUN_STOPPED_COUNT=0
-  local session
-  for session in "${sessions[@]}"; do
-    if tmux kill-session -t "$(tmux_exact_target "$session")" 2>/dev/null; then
-      info "セッション ${session} を終了しました。"
+  local s
+  for s in "${sessions[@]}"; do
+    if tmux kill-session -t "$(tmux_exact_target "$s")" 2>/dev/null; then
+      info "セッション ${s} を終了しました。"
       _SHOGUN_STOPPED_COUNT=$(( _SHOGUN_STOPPED_COUNT + 1 ))
     else
-      info "セッション ${session} は停止済みです。"
+      info "セッション ${s} は停止済みです。"
     fi
   done
 
-  stop_project_watchers "$session_taisho" "$session_multi" "$SHOGUN_ROOT"
+  stop_project_watchers "${sessions[@]}"
 }
 
 # キューファイルを空配列にリセットする（cmd_start --clean / cmd_reset 共通処理）。
@@ -469,6 +488,19 @@ fs.writeFileSync(file, yaml.dump(data, {allowUnicode: true}));
     info ".gitignore が存在しないためスキップしました（手動で追加してください）。"
   fi
 
+  # agmsg team への shogun system identity 登録。
+  # agmsg が未導入でも shogun init 自体は使えるよう、失敗しても継続する
+  # （shogun doctor で後から確認できる）。
+  _source_agmsg_adapter
+  local _agmsg_cmd_name _agmsg_team
+  _agmsg_cmd_name="$(read_agmsg_cmd_name "${shogun_dir}/config.yaml")"
+  _agmsg_team="$(project_agmsg_team_name "$project_name" "$project_dir")"
+  if agmsg_join "$_agmsg_cmd_name" "$_agmsg_team" shogun agmsg-app "$project_dir" 2>/dev/null; then
+    info "agmsg team '${_agmsg_team}' に shogun を登録しました。"
+  else
+    warn "agmsg team への登録に失敗しました（agmsg が未導入の可能性があります）。shogun doctor で確認してください。"
+  fi
+
   success "初期化完了! プロジェクト: ${project_name}"
   echo ""
   echo -e "  ${BOLD}次のステップ:${RESET}"
@@ -518,51 +550,23 @@ cmd_task() {
     fi
   fi
 
-  local queue_file="${SHOGUN_ROOT}/.shogun/queue/shogun_to_karo.yaml"
-  local timestamp
-  timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  _source_agmsg_adapter
 
-  # ID 生成（既存コマンド数+1、ゼロパディング3桁）
-  local cmd_id
-  cmd_id=$(node_yaml -e '
-const fs = require("fs");
-const yaml = require("js-yaml");
-const queueFile = process.argv[1];
-const data = yaml.load(fs.readFileSync(queueFile, "utf8")) || {commands: []};
-const cmds = data.commands || [];
-const next = cmds.length + 1;
-process.stdout.write("cmd_" + String(next).padStart(3, "0"));
-' -- "$queue_file")
+  local config_file="${SHOGUN_ROOT}/.shogun/config.yaml"
+  local project_name
+  project_name="$(read_project_name "$config_file")"
+  local _agmsg_cmd_name _agmsg_team
+  _agmsg_cmd_name="$(read_agmsg_cmd_name "$config_file")"
+  _agmsg_team="$(project_agmsg_team_name "$project_name" "$SHOGUN_ROOT")"
 
-  # shogun_to_karo.yaml にコマンドを追記
-  node_yaml -e '
-const fs = require("fs");
-const yaml = require("js-yaml");
-const [queueFile, id, ts, command, priority] = process.argv.slice(1);
-const data = yaml.load(fs.readFileSync(queueFile, "utf8")) || {commands: []};
-data.commands = data.commands || [];
-data.commands.push({
-  id,
-  timestamp: ts,
-  command,
-  priority,
-  status: "pending"
-});
-fs.writeFileSync(queueFile, yaml.dump(data, {allowUnicode: true}));
-' -- "$queue_file" "$cmd_id" "$timestamp" "$task_desc" "$priority"
+  if ! agmsg_send "$_agmsg_cmd_name" "$_agmsg_team" shogun taisho "$task_desc"; then
+    error "agmsg 経由でのタスク送信に失敗しました。shogun doctor で agmsg の状態を確認してください。"
+    exit 1
+  fi
 
-  success "タスクを追加しました: ${cmd_id}"
+  success "タスクをTaishoへ送信しました。"
   info "説明: ${task_desc}"
   info "優先度: ${priority}"
-
-  # SQLite inbox へ通知（cli.js 経由）
-  node "${SHOGUN_BIN_DIR}/packages/mcp-queue/cli.js" inbox_send \
-    "--root=${SHOGUN_ROOT}" \
-    "--from=shogun" \
-    "--to=taisho" \
-    "--subject=新規タスク: ${cmd_id}" \
-    "--body=${task_desc}" \
-    ${SHOGUN_PROJECT_ID:+"--project-id=${SHOGUN_PROJECT_ID}"}
 }
 
 _role_color() {
@@ -575,6 +579,15 @@ _role_color() {
     ashigaru*) echo "green"   ;;
     *)         echo "white"   ;;
   esac
+}
+
+# agmsg_adapter.sh をsourceする（テストでは SHOGUN_FAKE_AGMSG_ADAPTER で差し替え可能）。
+# 全呼び出し元（init/start/doctor/spawn/task）で同一のsource経路を使うことで、
+# テストの差し替えseamが一部の呼び出し元だけに存在する不整合を防ぐ
+# （本番では環境変数が未設定のため ":-" のデフォルトが常に勝ち、挙動は変わらない）。
+_source_agmsg_adapter() {
+  # shellcheck source=scripts/agmsg_adapter.sh
+  source "${SHOGUN_FAKE_AGMSG_ADAPTER:-${SHOGUN_BIN_DIR}/scripts/agmsg_adapter.sh}"
 }
 
 _set_pane_role_label() {
@@ -664,37 +677,15 @@ const v = (d.startup && d.startup.skip_permissions) === true;
 process.stdout.write(v ? "true" : "false");
 ' -- "$config_file")
 
-  # escalation_policy（Agent Self-Watch）— 1回の node 呼び出しで全フィールドを取得
-  local asw_enabled asw_phase1 asw_phase2 asw_phase3 asw_check_interval asw_raw
-  asw_raw=$(node_yaml -e '
-const yaml = require("js-yaml");
-const d = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
-const p = (d.escalation_policy) || {};
-process.stdout.write([
-  p.enabled === true ? "true" : "false",
-  String(p.phase1_nudge_sec || 300),
-  String(p.phase2_interrupt_sec || 600),
-  String(p.phase3_clear_sec || 900),
-  String(p.check_interval_sec || 30)
-].join("\n"));
-' -- "$config_file")
-  asw_enabled=$(printf '%s\n' "$asw_raw" | sed -n '1p')
-  asw_phase1=$(printf '%s\n' "$asw_raw" | sed -n '2p')
-  asw_phase2=$(printf '%s\n' "$asw_raw" | sed -n '3p')
-  asw_phase3=$(printf '%s\n' "$asw_raw" | sed -n '4p')
-  asw_check_interval=$(printf '%s\n' "$asw_raw" | sed -n '5p')
-
   # --count オプションで上書き
   if [[ -n "$count_override" ]]; then
     ashigaru_count="$count_override"
   fi
 
-  # セッション名
-  local session_taisho session_multi
-  read -r session_taisho session_multi <<< "$(project_session_names "$project_name" "$SHOGUN_ROOT")" || exit 1
+  local session
+  session="$(project_session_name "$project_name" "$SHOGUN_ROOT")" || exit 1
 
   info "プロジェクト: ${project_name}"
-  info "足軽数: ${ashigaru_count}"
   info "Taisho モデル: ${taisho_model} / Worker モデル: ${worker_model}"
 
   # --clean: バックアップ & キューリセット
@@ -716,7 +707,6 @@ process.stdout.write([
   stop_sessions_and_watchers "$_include_legacy_int"
 
   # claude コマンドのオプション
-  # .shogun/config.yaml で startup.skip_permissions: true を明示した場合のみ付与
   local claude_opts=""
   if [[ "$skip_permissions" == "true" ]]; then
     claude_opts="--dangerously-skip-permissions"
@@ -728,174 +718,167 @@ process.stdout.write([
     project_id_env="SHOGUN_PROJECT_ID=${SHOGUN_PROJECT_ID} "
   fi
 
-  # worker ペイン役職リストを先に確定させる（MCP allowlist 計算・ペイン生成で共用）
-  local pane_roles=("karo" "gunshi" "metsuke")
-  for ((i=1; i<=ashigaru_count; i++)); do
-    pane_roles+=("ashigaru${i}")
-  done
-
-  # ─── MCP サーバを役職ごとに起動（claude 起動前に JSON を生成しておく必要がある）
+  # MCP サーバを Taisho 用だけ起動する（Karo 以下はオンデマンド spawn 時に
+  # 別途起動する。Karo 以下の MCP 起動は計画外のスコープとし、現時点では
+  # Taisho の既存 MCP 構成のみ維持する）。
   info "MCP サーバを起動中..."
-  local _mcp_karo_sources=""
-  local _r
-  for _r in "${pane_roles[@]}"; do
-    [[ "$_r" == "karo" ]] && continue
-    _mcp_karo_sources+="${_mcp_karo_sources:+,}${_r}"
-  done
+  bash "${SHOGUN_BIN_DIR}/scripts/mcp_manager.sh" start \
+    "taisho" "$SHOGUN_ROOT" "karo" 2>/dev/null || {
+      error "MCP サーバの起動に失敗しました: taisho"
+      exit 1
+    }
+  success "MCP サーバを起動しました。"
 
-  local _mcp_all_roles=("taisho" "karo" "gunshi" "metsuke")
-  local _mcp_i
-  for ((_mcp_i=1; _mcp_i<=ashigaru_count; _mcp_i++)); do
-    _mcp_all_roles+=("ashigaru${_mcp_i}")
-  done
+  # 新しい run_id を発行する（shogun spawn の --fresh 判定に使う）。
+  # shellcheck source=scripts/agmsg_run_state.sh
+  source "${SHOGUN_BIN_DIR}/scripts/agmsg_run_state.sh"
+  local run_id
+  run_id="$(agmsg_run_state_new_run)"
+  info "run_id: ${run_id}"
 
-  local _mcp_role _mcp_allowed
-  for _mcp_role in "${_mcp_all_roles[@]}"; do
-    case "$_mcp_role" in
-      taisho)    _mcp_allowed="karo" ;;
-      karo)      _mcp_allowed="${_mcp_karo_sources}" ;;
-      *)         _mcp_allowed="" ;;
-    esac
-    bash "${SHOGUN_BIN_DIR}/scripts/mcp_manager.sh" start \
-      "$_mcp_role" "$SHOGUN_ROOT" "${_mcp_allowed}" 2>/dev/null || {
-        error "MCP サーバの起動に失敗しました: ${_mcp_role}"
-        exit 1
-      }
-  done
-  success "MCP サーバを起動しました（${#_mcp_all_roles[@]} 役職）"
+  # agmsg: Taisho の最小 join（readiness の堅牢化は別issueで行う）。
+  _source_agmsg_adapter
+  local _agmsg_cmd_name _agmsg_team
+  _agmsg_cmd_name="$(read_agmsg_cmd_name "$config_file")"
+  _agmsg_team="$(project_agmsg_team_name "$project_name" "$SHOGUN_ROOT")"
+  if agmsg_join "$_agmsg_cmd_name" "$_agmsg_team" taisho claude-code "$SHOGUN_ROOT" 2>/dev/null &&
+     agmsg_set_delivery "$_agmsg_cmd_name" set monitor claude-code "$SHOGUN_ROOT" 2>/dev/null; then
+    info "agmsg: taisho をチーム '${_agmsg_team}' に登録しました（monitor配信）。"
+  else
+    warn "agmsg: taisho の登録に失敗しました（agmsg が未導入の可能性があります）。shogun doctor で確認してください。"
+  fi
 
-  # ─── taisho-<safe_name>-<hash> セッション（Taisho 用、1ペイン）
-  tmux new-session -d -s "$session_taisho" -x 220 -y 50
-  tmux set-option -t "$session_taisho" status-style "bg=magenta,fg=white"
-  tmux set-option -t "$session_taisho" pane-border-status top 2>/dev/null || true
-  tmux set-option -t "$session_taisho" pane-border-format " #[fg=#{@shogun_color},bold]#{@shogun_role}#[default] │ #{pane_title} " 2>/dev/null || true
+  # ─── shogun-<safe_name>-<hash> セッション（Taisho のみ、1ペイン）
+  tmux new-session -d -s "$session" -x 220 -y 50
+  tmux set-option -t "$session" status-style "bg=magenta,fg=white"
+  tmux set-option -t "$session" pane-border-status top 2>/dev/null || true
+  tmux set-option -t "$session" pane-border-format " #[fg=#{@shogun_color},bold]#{@shogun_role}#[default] │ #{pane_title} " 2>/dev/null || true
 
-  # inbox_watcher.sh をバックグラウンドで起動（Taisho）
-  # claude より先に起動しないと、claude の TUI が入力を乗っ取り
-  # inbox_watcher のコマンド文字列が Claude の入力欄に入ってしまう
-  local taisho_pane
-  taisho_pane="${session_taisho}:0"
-  # SHOGUN_REPORT_SOURCES: Taisho は Karo の集約報告(karo_report.yaml)だけを監視し、
-  # Karo の報告書き込み漏れに備える。下位の個別報告では起こさない（早すぎる集約の防止）。
-  local asw_env="SHOGUN_ASW_ENABLED=${asw_enabled} SHOGUN_ASW_PHASE1_SEC=${asw_phase1} SHOGUN_ASW_PHASE2_SEC=${asw_phase2} SHOGUN_ASW_PHASE3_SEC=${asw_phase3} SHOGUN_ASW_CHECK_INTERVAL=${asw_check_interval}"
-  tmux send-keys -t "$taisho_pane" \
-    "SHOGUN_ROOT=${SHOGUN_ROOT} SHOGUN_BIN_DIR=${SHOGUN_BIN_DIR} ${project_id_env}SHOGUN_REPORT_SOURCES=karo ${asw_env} bash ${SHOGUN_BIN_DIR}/scripts/inbox_watcher.sh taisho ${taisho_pane} &" \
-    Enter 2>/dev/null || true
+  local taisho_pane="${session}:0"
   _set_pane_role_label "$taisho_pane" "taisho"
 
   if [[ "$setup_only" == "false" ]]; then
     local taisho_cmd taisho_mcp_cfg
     taisho_mcp_cfg="${SHOGUN_ROOT}/.shogun/mcp/taisho.json"
     taisho_cmd="cd ${SHOGUN_ROOT} && SHOGUN_ROLE=taisho SHOGUN_ROOT=${SHOGUN_ROOT} SHOGUN_BIN_DIR=${SHOGUN_BIN_DIR} ${project_id_env}claude --model ${taisho_model} ${claude_opts} --add-dir ${SHOGUN_ROOT}/.shogun --mcp-config ${taisho_mcp_cfg}"
-    tmux send-keys -t "${session_taisho}:0" "$taisho_cmd" Enter
+    tmux send-keys -t "$taisho_pane" "$taisho_cmd" Enter
   fi
-
-  # ─── multiagent-<name> セッション
-  # ペイン0: karo
-  tmux new-session -d -s "$session_multi" -x 220 -y 50
-  tmux set-option -t "$session_multi" pane-border-status top 2>/dev/null || true
-  tmux set-option -t "$session_multi" pane-border-format " #[fg=#{@shogun_color},bold]#{@shogun_role}#[default] │ #{pane_title} " 2>/dev/null || true
-
-  local total_panes=${#pane_roles[@]}
-
-  # 必要な分だけペインを追加作成（最初の1枚は new-session 時に作成済み）
-  for ((i=1; i<total_panes; i++)); do
-    tmux split-window -t "${session_multi}" -h 2>/dev/null || \
-    tmux split-window -t "${session_multi}" -v 2>/dev/null || true
-    tmux select-layout -t "${session_multi}" tiled 2>/dev/null || true
-  done
-  tmux select-layout -t "${session_multi}" tiled 2>/dev/null || true
-
-  # 各ペインに inbox_watcher & claude を起動
-  for ((i=0; i<total_panes; i++)); do
-    local role="${pane_roles[$i]}"
-    local pane_id="${session_multi}:0.${i}"
-
-    # inbox_watcher を claude より先に起動する
-    # claude の TUI が入力を乗っ取る前にバックグラウンドへ回す
-    # Karo は配下(gunshi/metsuke/ashigaru*)の報告を監視し、書き込み漏れに備える
-    local report_sources_env=""
-    if [[ "$role" == "karo" ]]; then
-      local karo_sources=""
-      local r
-      for r in "${pane_roles[@]}"; do
-        [[ "$r" == "karo" ]] && continue
-        karo_sources+="${karo_sources:+ }${r}"
-      done
-      report_sources_env="SHOGUN_REPORT_SOURCES='${karo_sources}' "
-    fi
-    tmux send-keys -t "$pane_id" \
-      "SHOGUN_ROOT=${SHOGUN_ROOT} SHOGUN_BIN_DIR=${SHOGUN_BIN_DIR} ${project_id_env}${report_sources_env}${asw_env} bash ${SHOGUN_BIN_DIR}/scripts/inbox_watcher.sh ${role} ${pane_id} &" \
-      Enter 2>/dev/null || true
-    _set_pane_role_label "$pane_id" "$role"
-
-    if [[ "$setup_only" == "false" ]]; then
-      # ペインのモデルを決定
-      local model="$worker_model"
-      local role_cmd role_mcp_cfg
-      role_mcp_cfg="${SHOGUN_ROOT}/.shogun/mcp/${role}.json"
-      role_cmd="cd ${SHOGUN_ROOT} && SHOGUN_ROLE=${role} SHOGUN_ROOT=${SHOGUN_ROOT} SHOGUN_BIN_DIR=${SHOGUN_BIN_DIR} ${project_id_env}claude --model ${model} ${claude_opts} --add-dir ${SHOGUN_ROOT}/.shogun --mcp-config ${role_mcp_cfg}"
-      tmux send-keys -t "$pane_id" "$role_cmd" Enter
-    fi
-  done
 
   echo ""
   success "Shogun 起動完了!"
   echo ""
   echo -e "  ${BOLD}セッションに接続:${RESET}"
-  echo -e "  ${CYAN}shogun attach taisho${RESET}   (Taisho)"
-  echo -e "  ${CYAN}shogun attach multi${RESET}    (マルチエージェント)"
+  echo -e "  ${CYAN}shogun attach${RESET}"
   echo ""
   echo -e "  ${BOLD}タスク投入:${RESET}"
   echo -e "  ${CYAN}shogun task \"やること\"${RESET}"
 }
 
 # ════════════════════════════════════════════════════════════
-# shogun attach [taisho|multi|multiagent]
+# shogun attach
 # ════════════════════════════════════════════════════════════
 cmd_attach() {
   require_init
-
-  local target="${1:-taisho}"
-
-  if ! [[ "$target" =~ ^[A-Za-z0-9_-]+$ ]]; then
-    error "不正なターゲット名: ${target}"
-    exit 1
-  fi
 
   local config_file="${SHOGUN_ROOT}/.shogun/config.yaml"
   local project_name
   project_name="$(read_project_name "$config_file")"
 
-  local session_taisho session_multi
-  read -r session_taisho session_multi <<< "$(project_session_names "$project_name" "$SHOGUN_ROOT")" || exit 1
+  local session
+  session="$(project_session_name "$project_name" "$SHOGUN_ROOT")" || exit 1
 
-  local session_name
-  case "$target" in
-    taisho)
-      session_name="$session_taisho"
-      ;;
-    multi|multiagent)
-      session_name="$session_multi"
-      ;;
-    *)
-      error "不明なターゲット: ${target}"
-      echo "Usage: shogun attach [taisho|multi]"
-      exit 1
-      ;;
-  esac
-
-  if ! tmux has-session -t "$(tmux_exact_target "$session_name")" 2>/dev/null; then
-    error "セッション ${session_name} が見つかりません。"
+  if ! tmux has-session -t "$(tmux_exact_target "$session")" 2>/dev/null; then
+    error "セッション ${session} が見つかりません。"
     echo "       先に shogun start を実行してください。"
     exit 1
   fi
 
   if [[ -n "${TMUX:-}" ]]; then
-    tmux switch-client -t "$(tmux_exact_target "$session_name")"
+    tmux switch-client -t "$(tmux_exact_target "$session")"
   else
-    exec tmux attach-session -t "$(tmux_exact_target "$session_name")"
+    exec tmux attach-session -t "$(tmux_exact_target "$session")"
   fi
+}
+
+# ════════════════════════════════════════════════════════════
+# shogun spawn <role> [--boot-prompt TEXT]
+# ════════════════════════════════════════════════════════════
+cmd_spawn() {
+  require_init
+
+  local role="${1:-}"
+  shift || true
+  local boot_prompt=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --boot-prompt)
+        boot_prompt="${2:?--boot-prompt には値が必要です}"
+        shift 2
+        ;;
+      *)
+        error "不明なオプション: $1"
+        exit 1
+        ;;
+    esac
+  done
+
+  if ! [[ "$role" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    error "不正な role: ${role}"
+    exit 1
+  fi
+
+  _source_agmsg_adapter
+  # shellcheck source=scripts/agmsg_run_state.sh
+  source "${SHOGUN_BIN_DIR}/scripts/agmsg_run_state.sh"
+
+  local config_file="${SHOGUN_ROOT}/.shogun/config.yaml"
+  local worker_model
+  worker_model=$(node_yaml -e '
+const yaml = require("js-yaml");
+const d = yaml.load(require("fs").readFileSync(process.argv[1], "utf8")) || {};
+process.stdout.write(String((d.agents && d.agents.worker_model) || "sonnet"));
+' -- "$config_file")
+
+  local project_name
+  project_name="$(read_project_name "$config_file")"
+  local _agmsg_cmd_name _agmsg_team
+  _agmsg_cmd_name="$(read_agmsg_cmd_name "$config_file")"
+  _agmsg_team="$(project_agmsg_team_name "$project_name" "$SHOGUN_ROOT")"
+
+  local -a spawn_args=(claude-code "$role" --model "$worker_model" --team "$_agmsg_team" --project "$SHOGUN_ROOT")
+  if [[ "$role" == "karo" ]]; then
+    spawn_args+=(--window)
+  fi
+  if [[ -n "$boot_prompt" ]]; then
+    spawn_args+=(--boot-prompt "$boot_prompt")
+  fi
+  if agmsg_run_state_fresh_needed "$role"; then
+    spawn_args+=(--fresh)
+  fi
+
+  if ! agmsg_spawn "$_agmsg_cmd_name" "${spawn_args[@]}"; then
+    error "spawn に失敗しました: ${role}"
+    exit 1
+  fi
+
+  agmsg_run_state_mark_fresh_done "$role"
+
+  # placement record からペインラベルを引き継ぐ（取得できなくても致命的ではない）
+  local placement
+  if placement="$(agmsg_get_placement "$_agmsg_cmd_name" "$_agmsg_team" "$role" 2>/dev/null)"; then
+    local pane_id
+    pane_id="$(printf '%s' "$placement" | cut -f1)"
+    case "$pane_id" in
+      %*) _set_pane_role_label "$pane_id" "$role" ;;
+      @*)
+        local root_pane
+        root_pane="$(tmux list-panes -t "$pane_id" -F '#{pane_id}' 2>/dev/null | head -n1)"
+        [[ -n "$root_pane" ]] && _set_pane_role_label "$root_pane" "$role"
+        ;;
+    esac
+  fi
+
+  success "spawn しました: ${role}"
 }
 
 # ════════════════════════════════════════════════════════════
@@ -1021,14 +1004,16 @@ cmd_status() {
   local project_name
   project_name="$(read_project_name "$config_file")"
 
-  local session_taisho session_multi
-  read -r session_taisho session_multi <<< "$(project_session_names "$project_name" "$SHOGUN_ROOT")" || exit 1
+  local session
+  session="$(project_session_name "$project_name" "$SHOGUN_ROOT")" || exit 1
 
   echo -e "${BOLD}${MAGENTA}=== Shogun Status: ${project_name} ===${RESET}"
   echo ""
 
   # shogun_to_karo.yaml のコマンド一覧
-  echo -e "${BOLD}[ コマンドキュー (shogun → karo) ]${RESET}"
+  # 注: shogun task は agmsg_send 経由で Taisho へ直接送信するため、
+  # このファイルはもはや shogun task から書き込まれない（残留データの表示用）。
+  echo -e "${BOLD}[ コマンドキュー (レガシー: shogun_to_karo.yaml) ]${RESET}"
   local queue_file="${SHOGUN_ROOT}/.shogun/queue/shogun_to_karo.yaml"
   if [[ -f "$queue_file" ]]; then
     node_yaml -e '
@@ -1074,16 +1059,10 @@ process.stdout.write(String((d.tasks || []).length));
   # tmux セッション稼働確認
   echo -e "${BOLD}[ tmux セッション ]${RESET}"
 
-  if tmux has-session -t "$(tmux_exact_target "$session_taisho")" 2>/dev/null; then
-    echo -e "  ${GREEN}●${RESET} ${session_taisho} (稼働中)"
+  if tmux has-session -t "$(tmux_exact_target "$session")" 2>/dev/null; then
+    echo -e "  ${GREEN}●${RESET} ${session} (稼働中)"
   else
-    echo -e "  ${RED}○${RESET} ${session_taisho} (停止)"
-  fi
-
-  if tmux has-session -t "$(tmux_exact_target "$session_multi")" 2>/dev/null; then
-    echo -e "  ${GREEN}●${RESET} ${session_multi} (稼働中)"
-  else
-    echo -e "  ${RED}○${RESET} ${session_multi} (停止)"
+    echo -e "  ${RED}○${RESET} ${session} (停止)"
   fi
 
   # dashboard
@@ -1212,8 +1191,7 @@ cmd_doctor() {
   # agmsg
   echo ""
   echo -e "${BOLD}[ agmsg ]${RESET}"
-  # shellcheck source=scripts/agmsg_adapter.sh
-  source "${SHOGUN_BIN_DIR}/scripts/agmsg_adapter.sh"
+  _source_agmsg_adapter
   local _agmsg_cmd_name="agmsg"
   if SHOGUN_ROOT="$(find_shogun_root 2>/dev/null)" && [[ -f "${SHOGUN_ROOT}/.shogun/config.yaml" ]]; then
     _agmsg_cmd_name="$(read_agmsg_cmd_name "${SHOGUN_ROOT}/.shogun/config.yaml")" || _agmsg_cmd_name="agmsg"
@@ -1248,17 +1226,12 @@ cmd_doctor() {
     if [[ -f "$config_file" ]]; then
       local project_name
       project_name="$(read_project_name "$config_file" 2>/dev/null || echo "shogun")"
-      local s1 s2
-      read -r s1 s2 <<< "$(project_session_names "$project_name" "$SHOGUN_ROOT")"
-      if tmux has-session -t "$(tmux_exact_target "$s1")" 2>/dev/null; then
-        echo -e "  ${GREEN}●${RESET} ${s1} (稼働中)"
+      local s
+      s="$(project_session_name "$project_name" "$SHOGUN_ROOT")"
+      if tmux has-session -t "$(tmux_exact_target "$s")" 2>/dev/null; then
+        echo -e "  ${GREEN}●${RESET} ${s} (稼働中)"
       else
-        echo -e "  ${RED}○${RESET} ${s1} (停止)"
-      fi
-      if tmux has-session -t "$(tmux_exact_target "$s2")" 2>/dev/null; then
-        echo -e "  ${GREEN}●${RESET} ${s2} (稼働中)"
-      else
-        echo -e "  ${RED}○${RESET} ${s2} (停止)"
+        echo -e "  ${RED}○${RESET} ${s} (停止)"
       fi
     fi
   else
@@ -1453,10 +1426,11 @@ cmd_help() {
   echo -e "  ${CYAN}init${RESET}                         プロジェクトを初期化 (.shogun/ を作成)"
   echo -e "  ${CYAN}start${RESET} (alias: ${CYAN}shutsujin${RESET}（出陣）) [--clean] [--setup] [--count N] [--legacy-cleanup]"
   echo -e "                                エージェントを tmux で起動"
-  echo -e "  ${CYAN}attach${RESET} [taisho|multi]          tmux セッションに接続"
+  echo -e "  ${CYAN}attach${RESET}                        tmux セッションに接続"
   echo -e "  ${CYAN}stop${RESET} (alias: ${CYAN}kijin${RESET}（帰陣）) [--legacy]   エージェントの tmux セッションを終了"
   echo -e "  ${CYAN}reset${RESET} [-y|--yes]               エージェントを強制停止してキューを初期化"
   echo -e "  ${CYAN}task${RESET} \"<説明>\" [--priority P]  新規タスクを投入"
+  echo -e "  ${CYAN}shogun spawn <role>${RESET}           役職をオンデマンドで起動（karo/gunshi/metsuke/ashigaruN）"
   echo -e "  ${CYAN}status${RESET}                       現在の状態を表示"
   echo -e "  ${CYAN}logs${RESET} [--agent <名前>]         ログを表示"
   echo -e "       [--tail N]              最新 N 行を表示 (デフォルト: 50)"
@@ -1486,6 +1460,7 @@ case "$COMMAND" in
   task)    cmd_task "$@" ;;
   start|shutsujin)   cmd_start "$@" ;;
   attach)            cmd_attach "$@" ;;
+  spawn)   cmd_spawn "$@" ;;
   stop|kijin)        cmd_stop "$@" ;;
   reset)             cmd_reset "$@" ;;
   status)  cmd_status "$@" ;;

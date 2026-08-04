@@ -399,3 +399,83 @@ herdr 統合によるセッション永続化は本設計のスコープ外と�
   server epoch・pane inventory・watcher の生存確認などから機械的に判定する。
 - **Taisho readiness の検証強化**: §7 の考え方を herdr 環境にも拡張し、
   stale sentinel の誤認防止、herdr 側での agent 入力可能状態の確認を追加する。
+
+## 16. 計画2（tmux 1セッション統合・通信層配線）の詳細設計
+
+`shogun spawn`/`shogun task`実装（issue #128）にあたり、§5・§6・§8の記述を以下の通り具体化する。
+
+### spawn は誰が判断するか
+
+Karo/Gunshi/Metsuke/Ashigaru を起こすかどうかの判断は Taisho/Karo 自身（LLM
+エージェント）が行う。`bin/shogun` は `shogun start` 時に Taisho だけを
+決定的に起動し、それ以降の spawn 判断には関与しない。エージェントが
+spawn を実行するための決定的な処理（モデル選択・`--fresh` 判定・
+pane label付け）は `shogun spawn <role>` という内部サブコマンドに集約し、
+エージェントの指示書（`templates/instructions/*.md`）はこのラッパーを
+呼ぶよう案内する（agmsg の生コマンドを直接叩かせない）。
+
+### `shogun spawn <role>` サブコマンド
+
+```
+shogun spawn <role> [--boot-prompt TEXT]
+```
+
+内部処理:
+
+1. `role` を `^[A-Za-z0-9_-]+$` で検証する。
+2. `.shogun/config.yaml` の `agents.worker_model` を解決する。
+3. run_id 状態（後述）を読み、当該 role の fresh フラグが未成立なら
+   `--fresh` を付与する。
+4. `role` が `karo` なら `--window`、それ以外（gunshi/metsuke/ashigaru*）は
+   フラグなし（デフォルトの split 挙動、Karo の window 内に pane 追加）で
+   `agmsg_spawn "$agmsg_cmd_name" claude-code "$role" --model "$worker_model" [--fresh] [--window] [--boot-prompt TEXT]`
+   を呼ぶ。
+5. 成功後、`agmsg_get_placement` で placement record を取得し、
+   `_set_pane_role_label()` でペインラベルを設定する
+   （`@N` 形式の window ID の場合は、その window の先頭 pane に適用する）。
+6. run_id 状態ファイルの当該 role のフラグを「成立」に更新する。
+7. 失敗時は agmsg のエラーをそのまま呼び出し元（エージェント）に見える形で返す。
+
+### run_id 状態管理
+
+- `.shogun/state/run_id`: `shogun start` 実行のたびに新しい UUID を書き込む
+  （既存ファイルは上書き）。
+- `.shogun/state/fresh_done/<role>`: 当該 run でその role の fresh spawn が
+  成立したことを示す空マーカーファイル。`shogun start` は起動時に
+  `.shogun/state/fresh_done/` ディレクトリを空にしてから新しい `run_id` を書く。
+- `.shogun/state/` は `.gitignore` に追加する（プロジェクトごとのローカル状態）。
+
+### `shogun` system identity と team 命名
+
+- team 名は `project_session_names()` と同じ命名規則
+  （`project_safe_name(project_name)` + `project_root_hash(SHOGUN_ROOT)`）を
+  流用し、`<safe_name>-<hash>` とする（他プロジェクトとの衝突防止）。
+- `shogun init` 時に `agmsg_join <team> shogun <type> <project>` で
+  `shogun` を system identity として登録する。`<type>` の値は実装時に
+  agmsg の `join.sh`/type manifest の実際の検証有無を確認してから決定する
+  （固定の type 名が必須かどうか未確認のため、実装タスクで検証する）。
+
+### Taisho の最小 join（このplanのスコープ）
+
+`shogun start` は Taisho 起動前に、以下の**最小限**の処理を行う
+（sentinel ポーリング・session_id 照合等の堅牢化は行わない。これは
+issue #129 のスコープ）。
+
+1. `agmsg_join <team> taisho <type> <project>`
+2. `agmsg_set_delivery set monitor <type> <project>`
+
+これにより `shogun task` → `agmsg_send <team> shogun taisho "..."` が
+機能する状態になる。
+
+### dashboard.md
+
+技術的な権限強制は行わない。`templates/instructions/karo.md` に
+「dashboard.md は直接編集せず、Taisho へ agmsg で報告すること」を明記する
+運用規約のみとする。
+
+### このplanのスコープ外
+
+- Karo → 配下への実際のタスク割り当て・報告メッセージのやり取り
+  （envelope プロトコル自体は計画4、issue #130）
+- 無応答復旧時の `shogun spawn` の再利用（計画5、issue #131）
+- Taisho readiness の堅牢化（sentinel/session_id 照合、計画3、issue #129）

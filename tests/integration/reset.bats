@@ -25,13 +25,13 @@ process.stdout.write(crypto.createHash('sha1').update(process.argv[1]).digest('h
 " "$physical_root"
 }
 
-test_session_names() {
+test_session_name() {
   local project_name="$1"
   local root="$2"
   local safe_name root_hash
   safe_name="$(test_safe_name "$project_name")"
   root_hash="$(test_root_hash "$root")"
-  printf "%s %s\n" "taisho-${safe_name}-${root_hash}" "multiagent-${safe_name}-${root_hash}"
+  printf "shogun-%s-%s" "${safe_name}" "${root_hash}"
 }
 
 # flag_names.sh と同じアルゴリズムで root_key を計算する。
@@ -49,13 +49,24 @@ setup() {
   cd "${TEST_PROJECT}"
 }
 
+# shogun task はもはや shogun_to_karo.yaml に書き込まないため（agmsg send 経由に
+# 置き換え済み）、reset がキューを実際に空へ戻すことを検証するために直接書き込む。
+_seed_command_queue() {
+  local desc="$1"
+  node -e "
+const fs = require('fs');
+const yaml = require('js-yaml');
+const data = { commands: [{ id: 'cmd_001', timestamp: new Date().toISOString(), command: process.argv[1], priority: 'normal', status: 'pending' }] };
+fs.writeFileSync('.shogun/queue/shogun_to_karo.yaml', yaml.dump(data, { allowUnicode: true }));
+" "$desc"
+}
+
 teardown() {
-  local project_name session_taisho session_multi extra_dir
+  local project_name session extra_dir
   if [[ -f "${TEST_PROJECT}/.shogun/config.yaml" ]]; then
     project_name="$(yaml_query "${TEST_PROJECT}/.shogun/config.yaml" "process.stdout.write(String(d.project_name || 'shogun'));")"
-    read -r session_taisho session_multi <<< "$(test_session_names "$project_name" "$TEST_PROJECT")"
-    tmux kill-session -t "=${session_taisho}" 2>/dev/null || true
-    tmux kill-session -t "=${session_multi}" 2>/dev/null || true
+    session="$(test_session_name "$project_name" "$TEST_PROJECT")"
+    tmux kill-session -t "=${session}" 2>/dev/null || true
   fi
   for extra_dir in "${EXTRA_DIRS[@]}"; do
     rm -rf "$extra_dir"
@@ -75,7 +86,7 @@ teardown() {
 }
 
 @test "reset: does nothing on No answer to prompt" {
-  shogun task "テストタスク" >/dev/null
+  _seed_command_queue "テストタスク"
   local before
   before="$(cat .shogun/queue/shogun_to_karo.yaml)"
 
@@ -89,7 +100,7 @@ teardown() {
 }
 
 @test "reset: does nothing on empty answer (default No)" {
-  shogun task "テストタスク" >/dev/null
+  _seed_command_queue "テストタスク"
   local before
   before="$(cat .shogun/queue/shogun_to_karo.yaml)"
 
@@ -103,7 +114,7 @@ teardown() {
 }
 
 @test "reset -y: resets shogun_to_karo.yaml to commands: []" {
-  shogun task "テストタスク" >/dev/null
+  _seed_command_queue "テストタスク"
 
   run shogun reset -y
   [ "$status" -eq 0 ]
@@ -161,7 +172,7 @@ teardown() {
 }
 
 @test "reset --yes: resets queue (long form option)" {
-  shogun task "テストタスク" >/dev/null
+  _seed_command_queue "テストタスク"
 
   run shogun reset --yes
   [ "$status" -eq 0 ]
@@ -207,19 +218,16 @@ teardown() {
 }
 
 @test "reset -y: kills tmux sessions if running" {
-  local project_name session_taisho session_multi
+  local project_name session
   project_name="$(basename "${TEST_PROJECT}")"
-  read -r session_taisho session_multi <<< "$(test_session_names "$project_name" "$TEST_PROJECT")"
+  session="$(test_session_name "$project_name" "$TEST_PROJECT")"
 
-  tmux new-session -d -s "$session_taisho"
-  tmux new-session -d -s "$session_multi"
+  tmux new-session -d -s "$session"
 
   run shogun reset -y
   [ "$status" -eq 0 ]
 
-  run tmux has-session -t "=${session_taisho}"
-  [ "$status" -ne 0 ]
-  run tmux has-session -t "=${session_multi}"
+  run tmux has-session -t "=${session}"
   [ "$status" -ne 0 ]
 }
 

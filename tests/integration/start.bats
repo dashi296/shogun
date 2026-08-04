@@ -1,12 +1,10 @@
 #!/usr/bin/env bats
-# shogun start の統合テスト（inbox_watcher への環境変数配線を検証）
+# shogun start の統合テスト
 #
-# 実 tmux を使わず、tmux をスタブ化して send-keys に渡るコマンド文字列を
-# TMUX_LOG に記録し、各役職の watcher 起動行に正しい SHOGUN_REPORT_SOURCES が
-# 付与されることを確認する。
-#   - taisho -> SHOGUN_REPORT_SOURCES=karo（Karo の集約報告のみ監視）
-#   - karo   -> 配下 allowlist（gunshi metsuke ashigaru1 ...）
-#   - worker(gunshi/metsuke/ashigaru) -> 付与しない
+# shogun start は単一の shogun-<name>-<hash> セッションに Taisho のみを起動する
+# (Karo/Gunshi/Metsuke/Ashigaru は shogun spawn によるオンデマンド起動に移行済み)。
+# 実 tmux を使わず、tmux をスタブ化して send-keys / new-session に渡る
+# コマンド文字列を TMUX_LOG に記録し、Taisho ペインの配線を確認する。
 
 load '../test_helper'
 
@@ -34,53 +32,16 @@ STUB
   export PATH="${stub_bin}:${PATH}"
 }
 
-@test "start: passes SHOGUN_REPORT_SOURCES=karo to taisho watcher" {
-  _stub_tmux
-  run shogun start --setup
-  [ "$status" -eq 0 ]
-
-  run grep "inbox_watcher.sh taisho " "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"SHOGUN_REPORT_SOURCES=karo"* ]]
-}
-
-@test "start: passes subordinate allowlist to karo watcher" {
-  _stub_tmux
-  run shogun start --setup
-  [ "$status" -eq 0 ]
-
-  run grep "inbox_watcher.sh karo " "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-  # 固定役職 gunshi/metsuke の包含で allowlist 配線を確認（ashigaru 数には依存しない）
-  [[ "$output" == *"SHOGUN_REPORT_SOURCES='gunshi metsuke"* ]]
-}
-
-@test "start: does not pass SHOGUN_REPORT_SOURCES to worker watchers" {
-  _stub_tmux
-  run shogun start --setup
-  [ "$status" -eq 0 ]
-
-  run grep "inbox_watcher.sh gunshi " "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-  [[ "$output" != *"SHOGUN_REPORT_SOURCES"* ]]
-
-  run grep "inbox_watcher.sh ashigaru1 " "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-  [[ "$output" != *"SHOGUN_REPORT_SOURCES"* ]]
-}
-
-@test "start: enables pane-border-status on both sessions" {
+@test "start: enables pane-border-status on the taisho session" {
   _stub_tmux
   run shogun start --setup
   [ "$status" -eq 0 ]
 
   run grep "pane-border-status top" "$TMUX_LOG"
   [ "$status" -eq 0 ]
-  # taisho と multiagent の2セッション分が設定される
-  [ "$(grep -c "pane-border-status top" "$TMUX_LOG")" -ge 2 ]
 }
 
-@test "start: sets pane-border-format on both sessions" {
+@test "start: sets pane-border-format on the taisho session" {
   _stub_tmux
   run shogun start --setup
   [ "$status" -eq 0 ]
@@ -102,18 +63,6 @@ STUB
   [[ "$output" == *"-T taisho: 待機中"* ]]
 }
 
-@test "start: sets initial pane title for each agent" {
-  _stub_tmux
-  run shogun start --setup
-  [ "$status" -eq 0 ]
-
-  run grep "select-pane.*-T karo: 待機中" "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-
-  run grep "select-pane.*-T ashigaru1: 待機中" "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-}
-
 @test "start: sets @shogun_role and @shogun_color pane options for taisho" {
   _stub_tmux
   run shogun start --setup
@@ -126,36 +75,6 @@ STUB
   [ "$status" -eq 0 ]
 }
 
-@test "start: sets @shogun_role and @shogun_color pane options for each agent" {
-  _stub_tmux
-  run shogun start --setup
-  [ "$status" -eq 0 ]
-
-  run grep "set-option -p.*@shogun_role karo" "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-
-  run grep "set-option -p.*@shogun_color yellow" "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-
-  run grep "set-option -p.*@shogun_role gunshi" "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-
-  run grep "set-option -p.*@shogun_color cyan" "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-
-  run grep "set-option -p.*@shogun_role metsuke" "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-
-  run grep "set-option -p.*@shogun_color red" "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-
-  run grep "set-option -p.*@shogun_role ashigaru1" "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-
-  run grep "set-option -p.*@shogun_color green" "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-}
-
 @test "start: sets @agent_id pane option for taisho" {
   _stub_tmux
   run shogun start --setup
@@ -163,66 +82,6 @@ STUB
 
   run grep "set-option -p.*@agent_id taisho" "$TMUX_LOG"
   [ "$status" -eq 0 ]
-}
-
-@test "start: sets @agent_id pane option for each agent" {
-  _stub_tmux
-  run shogun start --setup
-  [ "$status" -eq 0 ]
-
-  run grep "set-option -p.*@agent_id karo" "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-
-  run grep "set-option -p.*@agent_id gunshi" "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-
-  run grep "set-option -p.*@agent_id metsuke" "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-
-  run grep "set-option -p.*@agent_id ashigaru1" "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-}
-
-# ── Agent Self-Watch（ASW）環境変数の配線テスト ──
-
-@test "start: passes SHOGUN_ASW_ENABLED=false to taisho watcher by default" {
-  _stub_tmux
-  run shogun start --setup
-  [ "$status" -eq 0 ]
-
-  run grep "inbox_watcher.sh taisho " "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"SHOGUN_ASW_ENABLED=false"* ]]
-}
-
-@test "start: passes SHOGUN_ASW_ENABLED=false to worker watchers by default" {
-  _stub_tmux
-  run shogun start --setup
-  [ "$status" -eq 0 ]
-
-  run grep "inbox_watcher.sh karo " "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"SHOGUN_ASW_ENABLED=false"* ]]
-}
-
-@test "start: passes SHOGUN_ASW_ENABLED=true when escalation_policy.enabled is true" {
-  # config.yaml の escalation_policy.enabled を true に書き換えてから起動
-  node -e '
-const yaml = require("js-yaml");
-const fs = require("fs");
-const cfg = ".shogun/config.yaml";
-const d = yaml.load(fs.readFileSync(cfg, "utf8"));
-d.escalation_policy = d.escalation_policy || {};
-d.escalation_policy.enabled = true;
-fs.writeFileSync(cfg, yaml.dump(d, {allowUnicode: true}));
-'
-  _stub_tmux
-  run shogun start --setup
-  [ "$status" -eq 0 ]
-
-  run grep "inbox_watcher.sh taisho " "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"SHOGUN_ASW_ENABLED=true"* ]]
 }
 
 @test "start: resets ashigaru review files to reviews: []" {
@@ -257,79 +116,22 @@ process.stdout.write(args);
   [[ "$output" == *"--allowed-sources=karo"* ]]
 }
 
-@test "start: creates MCP config JSON for each role" {
-  _stub_tmux
-  run shogun start --setup
-  [ "$status" -eq 0 ]
-  for role in karo gunshi metsuke ashigaru1; do
-    [ -f ".shogun/mcp/${role}.json" ]
-  done
-}
-
-@test "start: karo MCP config has correct allowed-sources (subordinates)" {
-  _stub_tmux
-  run shogun start --setup
-  [ "$status" -eq 0 ]
-  run node -e "
-const d = JSON.parse(require('fs').readFileSync('.shogun/mcp/karo.json', 'utf8'));
-const args = Object.values(d.mcpServers)[0].args.join(' ');
-process.stdout.write(args);
-"
-  # karo は gunshi, metsuke, ashigaru{N} を受け取る allowlist を持つ
-  [[ "$output" == *"--allowed-sources="* ]]
-  [[ "$output" == *"gunshi"* ]]
-  [[ "$output" == *"metsuke"* ]]
-}
-
-@test "start: worker roles have MCP config with correct server name" {
-  _stub_tmux
-  run shogun start --setup
-  [ "$status" -eq 0 ]
-  for role in gunshi metsuke ashigaru1; do
-    run node -e "
-const d = JSON.parse(require('fs').readFileSync('.shogun/mcp/${role}.json', 'utf8'));
-process.stdout.write(Object.keys(d.mcpServers)[0]);
-"
-    [ "$output" = "shogun-mcp-queue-${role}" ]
-  done
-}
-
-@test "start: passes SHOGUN_BIN_DIR to taisho watcher" {
-  _stub_tmux
-  run shogun start --setup
-  [ "$status" -eq 0 ]
-  run grep "inbox_watcher.sh taisho " "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"SHOGUN_BIN_DIR="* ]]
-}
-
-@test "start: passes SHOGUN_BIN_DIR to worker watchers" {
-  _stub_tmux
-  run shogun start --setup
-  [ "$status" -eq 0 ]
-  run grep "inbox_watcher.sh karo " "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"SHOGUN_BIN_DIR="* ]]
-  run grep "inbox_watcher.sh ashigaru1 " "$TMUX_LOG"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"SHOGUN_BIN_DIR="* ]]
-}
-
-@test "start: MCP config JSON files exist before watcher is launched" {
-  # MCP JSON は claude/watcher を起動する前（--setup でも）に生成されなければならない。
+@test "start: MCP config JSON exists before taisho claude command is launched" {
+  # MCP JSON は claude を起動する前に生成されなければならない
+  # (taisho は --mcp-config でそのファイルを直接参照する)。
   # tmux stub がコマンドを記録するので、JSON ファイルが存在するタイミングを検証できる。
   local stub_bin="${TEST_PROJECT}/stub-bin2"
   mkdir -p "$stub_bin"
   local log="${TEST_PROJECT}/order.log"
   : > "$log"
-  # tmux stub: send-keys でコマンドが来たとき、その時点で JSON が存在するか記録する
+  # tmux stub: send-keys で claude 起動コマンドが来たとき、その時点で JSON が存在するか記録する
   cat > "${stub_bin}/tmux" <<STUB
 #!/usr/bin/env bash
-if [[ "\$*" == *"inbox_watcher"* ]]; then
+if [[ "\$*" == *"claude --model"* ]]; then
   if [ -f "${TEST_PROJECT}/.shogun/mcp/taisho.json" ]; then
-    echo "json_exists_before_watcher" >> "${log}"
+    echo "json_exists_before_claude" >> "${log}"
   else
-    echo "json_missing_before_watcher" >> "${log}"
+    echo "json_missing_before_claude" >> "${log}"
   fi
 fi
 printf '%s\n' "\$*" >> "${TEST_PROJECT}/tmux2.log"
@@ -337,12 +139,39 @@ exit 0
 STUB
   chmod +x "${stub_bin}/tmux"
   export PATH="${stub_bin}:${PATH}"
+  run shogun start
+  [ "$status" -eq 0 ]
+  # ログに "json_missing_before_claude" が一件もないこと
+  run grep "json_missing_before_claude" "$log" || true
+  [ -z "$output" ]
+  # "json_exists_before_claude" が少なくとも1件あること(claude が呼ばれた証拠)
+  run grep -c "json_exists_before_claude" "$log"
+  [ "$output" -ge 1 ]
+}
+
+@test "start: creates exactly one tmux session (no multiagent session)" {
+  _stub_tmux
   run shogun start --setup
   [ "$status" -eq 0 ]
-  # ログに "json_missing_before_watcher" が一件もないこと
-  run grep "json_missing_before_watcher" "$log" || true
-  [ -z "$output" ]
-  # "json_exists_before_watcher" が少なくとも1件あること（watcher が呼ばれた証拠）
-  run grep -c "json_exists_before_watcher" "$log"
-  [ "$output" -ge 1 ]
+
+  run grep -c "^new-session " "$TMUX_LOG"
+  [ "$output" = "1" ]
+}
+
+@test "start: does not spawn inbox_watcher for karo/gunshi/metsuke/ashigaru at startup" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+
+  run grep "inbox_watcher.sh karo \|inbox_watcher.sh gunshi \|inbox_watcher.sh metsuke \|inbox_watcher.sh ashigaru" "$TMUX_LOG"
+  [ "$status" -ne 0 ]
+}
+
+@test "start: does not launch inbox_watcher for taisho either (superseded by agmsg monitor)" {
+  _stub_tmux
+  run shogun start --setup
+  [ "$status" -eq 0 ]
+
+  run grep "inbox_watcher.sh taisho " "$TMUX_LOG"
+  [ "$status" -ne 0 ]
 }

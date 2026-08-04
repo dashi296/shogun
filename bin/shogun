@@ -775,7 +775,7 @@ process.stdout.write(v ? "true" : "false");
 }
 
 # ════════════════════════════════════════════════════════════
-# shogun attach [taisho|multi|multiagent]
+# shogun attach
 # ════════════════════════════════════════════════════════════
 cmd_attach() {
   require_init
@@ -1011,7 +1011,9 @@ cmd_status() {
   echo ""
 
   # shogun_to_karo.yaml のコマンド一覧
-  echo -e "${BOLD}[ コマンドキュー (shogun → karo) ]${RESET}"
+  # 注: shogun task は agmsg_send 経由で Taisho へ直接送信するため、
+  # このファイルはもはや shogun task から書き込まれない（残留データの表示用）。
+  echo -e "${BOLD}[ コマンドキュー (レガシー: shogun_to_karo.yaml) ]${RESET}"
   local queue_file="${SHOGUN_ROOT}/.shogun/queue/shogun_to_karo.yaml"
   if [[ -f "$queue_file" ]]; then
     node_yaml -e '

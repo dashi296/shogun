@@ -127,6 +127,18 @@ process.stdout.write(crypto.createHash("sha1").update(process.argv[1]).digest("h
 ' -- "$physical_root"
 }
 
+# project_name と SHOGUN_ROOT から agmsg team 名を生成する
+# （tmux セッション名とは別の命名空間。他プロジェクトとの衝突防止に
+# project_safe_name/project_root_hash を再利用する）。
+project_agmsg_team_name() {
+  local project_name="$1"
+  local project_root="$2"
+  local safe_name root_hash
+  safe_name="$(project_safe_name "$project_name")" || return 1
+  root_hash="$(project_root_hash "$project_root")"
+  printf '%s-%s' "${safe_name}" "${root_hash}"
+}
+
 # project_name と SHOGUN_ROOT から Shogun が管理する tmux セッション名を生成
 project_session_names() {
   local project_name="$1"
@@ -467,6 +479,20 @@ fs.writeFileSync(file, yaml.dump(data, {allowUnicode: true}));
     fi
   else
     info ".gitignore が存在しないためスキップしました（手動で追加してください）。"
+  fi
+
+  # agmsg team への shogun system identity 登録。
+  # agmsg が未導入でも shogun init 自体は使えるよう、失敗しても継続する
+  # （shogun doctor で後から確認できる）。
+  # shellcheck source=scripts/agmsg_adapter.sh
+  source "${SHOGUN_BIN_DIR}/scripts/agmsg_adapter.sh"
+  local _agmsg_cmd_name _agmsg_team
+  _agmsg_cmd_name="$(read_agmsg_cmd_name "${shogun_dir}/config.yaml")"
+  _agmsg_team="$(project_agmsg_team_name "$project_name" "$project_dir")"
+  if agmsg_join "$_agmsg_cmd_name" "$_agmsg_team" shogun agmsg-app "$project_dir" 2>/dev/null; then
+    info "agmsg team '${_agmsg_team}' に shogun を登録しました。"
+  else
+    warn "agmsg team への登録に失敗しました（agmsg が未導入の可能性があります）。shogun doctor で確認してください。"
   fi
 
   success "初期化完了! プロジェクト: ${project_name}"

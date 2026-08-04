@@ -321,3 +321,9 @@ process.stdout.write(JSON.stringify(d.persona != null && d.persona.sengoku === t
   run grep -c "# --- Shogun ---" .gitignore
   [ "$output" = "1" ]
 }
+
+@test "init: registers shogun as an agmsg system identity when agmsg is not installed" {
+  run shogun init
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"agmsg"* ]]
+}

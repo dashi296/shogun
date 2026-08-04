@@ -701,12 +701,14 @@ Expected: FAIL — 新規3テストが失敗する（現行の `cmd_start` は�
 
 `cmd_start()` の引数パース部分（`--count` オプション含む）はそのまま残してよい（`ashigaru_count`・`--count` は `shogun spawn` や将来の計画で引き続き使うため）。ただし `ashigaru_count`/`worker_model` を計算する既存の node_yaml 呼び出しはそのまま残す（Task 5 の `shogun spawn` が `worker_model` を必要とする）。
 
-**削除する既存コード**: `pane_roles` 配列の構築、`_mcp_karo_sources`/`_mcp_all_roles` を使った Karo 以下への MCP 一括起動ループ、`multiagent-*` セッションの `tmux new-session`/`split-window` ループ、Karo 以下への `inbox_watcher.sh` 起動ループ、Karo 以下への `claude` 起動ループ——これらはすべて上記の書き換えで丸ごと削除する。
+**削除する既存コード**:
+- `pane_roles` 配列の構築、`_mcp_karo_sources`/`_mcp_all_roles` を使った Karo 以下への MCP 一括起動ループ、`multiagent-*` セッションの `tmux new-session`/`split-window` ループ、Karo 以下への `inbox_watcher.sh` 起動ループ、Karo 以下への `claude` 起動ループ——これらはすべて上記の書き換えで丸ごと削除する。
+- `escalation_policy`（Agent Self-Watch）を読む `asw_raw`/`asw_enabled`/`asw_phase1`/`asw_phase2`/`asw_phase3`/`asw_check_interval`/`asw_env` の計算ブロック（`# escalation_policy（Agent Self-Watch）— 1回の node 呼び出しで全フィールドを取得` というコメントの付いたブロック、`local session` 宣言より前、`# --count オプションで上書き` の直前にある）も削除する。この値は `inbox_watcher.sh` 起動時にのみ渡していたが、この Task で `inbox_watcher.sh` を一切起動しなくなるため、削除しないと未使用変数（デッドコード）になる。
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `tests/bats/bin/bats tests/integration/start.bats`
-Expected: 新規3テストが PASS。既存テスト（`SHOGUN_REPORT_SOURCES=karo をtaisho watcherに渡す`等）は、この Task により意味を失うため削除する（`inbox_watcher.sh` 自体をもう起動しないため）。該当する既存テストを削除し、削除後に残るテスト全体を実行して PASS することを確認する。
+Expected: 新規3テストが PASS。既存テストのうち、`inbox_watcher.sh` の起動を前提にしたもの——`SHOGUN_REPORT_SOURCES=karo をtaisho watcherに渡す`等、および `SHOGUN_ASW_ENABLED` を watcher に渡すことを検証する3テスト（`start: passes SHOGUN_ASW_ENABLED=false to taisho watcher by default`・`start: passes SHOGUN_ASW_ENABLED=false to worker watchers by default`・`start: passes SHOGUN_ASW_ENABLED=true when escalation_policy.enabled is true`）——は、この Task により意味を失うため削除する（`inbox_watcher.sh` 自体をもう起動しないため）。該当する既存テストを削除し、削除後に残るテスト全体を実行して PASS することを確認する。
 
 - [ ] **Step 5: Run the full suite and commit**
 

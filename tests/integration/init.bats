@@ -327,3 +327,29 @@ process.stdout.write(JSON.stringify(d.persona != null && d.persona.sengoku === t
   [ "$status" -eq 0 ]
   [[ "$output" == *"agmsg"* ]]
 }
+
+@test "init: joins the agmsg team with shogun as an agmsg-app system identity when agmsg is installed" {
+  local agmsg_home log_file
+  agmsg_home="$(mktemp -d)"
+  log_file="${agmsg_home}/join.log"
+  mkdir -p "${agmsg_home}/scripts"
+  cat > "${agmsg_home}/scripts/join.sh" <<EOF
+#!/usr/bin/env bash
+echo "\$*" > "${log_file}"
+EOF
+  chmod +x "${agmsg_home}/scripts/join.sh"
+
+  AGMSG_HOME_OVERRIDE="${agmsg_home}" run shogun init
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"に shogun を登録しました。"* ]]
+  [[ "$output" != *"agmsg team への登録に失敗しました"* ]]
+
+  [ -f "$log_file" ]
+  local project_name expected_team logged
+  project_name="$(basename "$TEST_PROJECT")"
+  expected_team="$(bash -c "source '${SHOGUN_REPO}/bin/shogun' 2>/dev/null; project_agmsg_team_name '${project_name}' '${TEST_PROJECT}'")"
+  logged="$(cat "$log_file")"
+  [ "$logged" = "${expected_team} shogun agmsg-app ${TEST_PROJECT}" ]
+
+  rm -rf "${agmsg_home}"
+}

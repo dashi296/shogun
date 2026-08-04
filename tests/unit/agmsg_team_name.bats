@@ -28,7 +28,7 @@ teardown() {
   run bash -c "
     source '${SHOGUN_REPO}/bin/shogun' 2>/dev/null
     team=\"\$(project_agmsg_team_name 'proj' '${TEST_ROOT}')\"
-    read -r sess _rest <<< \"\$(project_session_name 'proj' '${TEST_ROOT}')\"
+    sess=\"\$(project_session_name 'proj' '${TEST_ROOT}')\"
     [ \"\$team\" != \"\$sess\" ]
   "
   [ "$status" -eq 0 ]

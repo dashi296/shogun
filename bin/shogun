@@ -163,18 +163,23 @@ tmux_exact_target() {
   printf "=%s" "$1"
 }
 
-# 残留した inbox_watcher / fswatch プロセスを停止する。
+# 残留した inbox_watcher プロセスを停止する。
 # inbox_watcher は `&` でバックグラウンド起動されるため tmux kill-session では
 # SIGHUP が届かず孤児化し、同じ inbox を監視し続けて誤ペインへ wake-up を送る。
-# プロジェクト固有のセッション名（ハッシュ込み）と root でスコープを限定し、
-# 他プロジェクトの watcher を巻き込まないようにする。
+# 引数: <session1> [session2 ...]
+#   セッション名ごとに個別の pkill パターンを構築する（ペイン引数にセッション名
+#   （ハッシュ込み）を含むため）。呼び出し元はカレントセッションに加え、
+#   include_legacy 時は本ブランチ以前（2セッション構成）の legacy セッション名
+#   （multiagent-<name> / taisho-<name>）も渡すことで、旧コードが残した孤児
+#   watcher（このブランチの1セッション名パターンには決してマッチしない）も
+#   停止対象にできる。
+# 注: 本ブランチの inbox_watcher.sh は MCP プル型へ移行済みで fswatch を使わない
+#   ため、fswatch 向け pkill は行わない。
 stop_project_watchers() {
-  local session="$1" root="$2"
-  # inbox_watcher.sh はペイン引数にセッション名（ハッシュ込み）を含む
-  pkill -f "inbox_watcher\.sh .*${session}" 2>/dev/null || true
-  # fswatch は監視対象パスに <root>/.shogun/queue を含む（dot を正規表現エスケープ）
-  local root_re="${root//./\\.}"
-  pkill -f "fswatch .*${root_re}/\.shogun/queue" 2>/dev/null || true
+  local session
+  for session in "$@"; do
+    pkill -f "inbox_watcher\.sh .*${session}" 2>/dev/null || true
+  done
 }
 
 # セッションと孤児 watcher を停止する（cmd_stop / cmd_reset 共通処理）。
@@ -204,7 +209,7 @@ stop_sessions_and_watchers() {
     fi
   done
 
-  stop_project_watchers "$session" "$SHOGUN_ROOT"
+  stop_project_watchers "${sessions[@]}"
 }
 
 # キューファイルを空配列にリセットする（cmd_start --clean / cmd_reset 共通処理）。
